@@ -1,6 +1,7 @@
 """Tests for cgroup discovery and recursive process telemetry."""
 
 import csv
+import io
 import os
 import signal
 import subprocess
@@ -11,6 +12,7 @@ import unittest
 from pathlib import Path
 
 from src.resource_monitor import (
+    PlainTextProgressReporter,
     ProcessTreeSampler,
     TelemetryWriter,
     WorkerTelemetryContext,
@@ -149,6 +151,35 @@ while time.monotonic() < end:
             self.assertEqual(loaded[0]["worker_id"], "2")
             self.assertEqual(loaded[0]["model_id"], "MODEL")
             self.assertEqual(loaded[0]["stage"], "selector")
+
+    def test_plain_progress_includes_resource_and_process_context(self) -> None:
+        stream = io.StringIO()
+        row = {
+            "elapsed_seconds": 12.5,
+            "worker_id": "2",
+            "model_id": "MODEL",
+            "stage": "candidates",
+            "parent_pid": 123,
+            "process_tree_cpu_percent_raw": 250.0,
+            "process_tree_cpu_percent_capacity_normalized": 15.625,
+            "process_tree_rss_bytes": 2 * 1024**3,
+            "system_cpu_percent": 40.0,
+            "system_memory_percent": 55.0,
+        }
+        PlainTextProgressReporter(stream).report(
+            completed=0,
+            total=2,
+            failed=0,
+            active_rows=[row],
+        )
+        output = stream.getvalue()
+        self.assertIn("elapsed=12.5s", output)
+        self.assertIn("system_cpu=40.0%", output)
+        self.assertIn("system_ram=55.0%", output)
+        self.assertIn("pid=123", output)
+        self.assertIn("cpu=250.0%", output)
+        self.assertIn("capacity=15.6%", output)
+        self.assertIn("rss=2.00GiB", output)
 
     @staticmethod
     def _terminate(process: subprocess.Popen[str]) -> None:

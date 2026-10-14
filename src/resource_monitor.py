@@ -340,17 +340,31 @@ class PlainTextProgressReporter:
             active_rows: Current telemetry rows for active workers.
         """
         timestamp = datetime.now().strftime("%H:%M:%S")
-        self.stream.write(
+        summary = (
             f"[{timestamp}] completed={completed}/{total} "
-            f"active={len(active_rows)} failed={failed}\n"
+            f"active={len(active_rows)} failed={failed}"
         )
+        if active_rows:
+            elapsed_seconds = max(float(row["elapsed_seconds"]) for row in active_rows)
+            system_cpu = float(active_rows[0]["system_cpu_percent"])
+            system_memory = float(active_rows[0]["system_memory_percent"])
+            summary += (
+                f" elapsed={elapsed_seconds:.1f}s"
+                f" system_cpu={system_cpu:.1f}%"
+                f" system_ram={system_memory:.1f}%"
+            )
+        self.stream.write(f"{summary}\n")
         for row in active_rows:
             gib = float(row["process_tree_rss_bytes"]) / (1024**3)
             self.stream.write(
                 f"worker={row['worker_id']} model={row['model_id']} "
                 f"stage={row['stage']} "
+                f"pid={row['parent_pid']} "
                 f"cpu={float(row['process_tree_cpu_percent_raw']):.1f}% "
-                f"rss={gib:.2f}GiB\n"
+                "capacity="
+                f"{float(row['process_tree_cpu_percent_capacity_normalized']):.1f}% "
+                f"rss={gib:.2f}GiB "
+                f"elapsed={float(row['elapsed_seconds']):.1f}s\n"
             )
         self.stream.flush()
 
