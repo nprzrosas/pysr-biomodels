@@ -10,15 +10,16 @@ import pandas as pd
 import sympy as sp
 from pysr import PySRRegressor
 
+from . import runtime_paths
 from .benchmark_variant import (
     EXACT_BENCHMARK_VARIANT,
     BenchmarkVariant,
     validate_derivative_provenance,
 )
 from .model_spec import ModelSpec
+from .runtime_paths import results_root
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = runtime_paths.PROJECT_ROOT
 
 TRAINING_DATASETS = (
     "train_04",
@@ -53,14 +54,9 @@ def resolve_experiment_root(
     if not isinstance(variant, BenchmarkVariant):
         raise TypeError("variant must be a validated BenchmarkVariant.")
 
-    root = PROJECT_ROOT if project_root is None else Path(project_root)
+    root = results_root() if project_root is None else Path(project_root) / "results"
 
-    return (
-        root
-        / "results"
-        / model_id
-        / variant.experiment_namespace
-    )
+    return root / model_id / variant.experiment_namespace
 
 
 @dataclass(frozen=True)

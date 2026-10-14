@@ -831,15 +831,16 @@ def execute_batch(
             manifest.write()
             registry.terminate_all()
 
-    previous_handler = None
+    previous_handlers: dict[signal.Signals, Any] = {}
     if threading.current_thread() is threading.main_thread():
-        previous_handler = signal.getsignal(signal.SIGINT)
-
-        def handle_sigint(_signum: int, _frame: Any) -> None:
+        def handle_termination(_signum: int, _frame: Any) -> None:
+            """Stop scheduling and terminate only this batch's workers."""
             stop_event.set()
             registry.terminate_all()
 
-        signal.signal(signal.SIGINT, handle_sigint)
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            previous_handlers[signum] = signal.getsignal(signum)
+            signal.signal(signum, handle_termination)
 
     try:
         with TelemetryWriter(context.telemetry_path) as telemetry:
@@ -853,8 +854,8 @@ def execute_batch(
             )
             _drain_events(events, manifest)
     finally:
-        if previous_handler is not None:
-            signal.signal(signal.SIGINT, previous_handler)
+        for signum, previous_handler in previous_handlers.items():
+            signal.signal(signum, previous_handler)
 
     for outcome in outcomes:
         model_status = "failed"

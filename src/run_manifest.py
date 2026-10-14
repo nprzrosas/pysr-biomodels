@@ -5,19 +5,20 @@ import json
 import os
 import subprocess
 import threading
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Self
 
+from . import runtime_paths
 from .benchmark_variant import BenchmarkVariant
-from .model_registry import DEFAULT_MODEL_ROOT
-from .simulation_metadata import DEFAULT_SIMULATION_METADATA_PATH
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_RESULTS_ROOT = PROJECT_ROOT / "results"
-DEFAULT_RUNS_ROOT = PROJECT_ROOT / "runs"
-DEFAULT_CACHE_ROOT = PROJECT_ROOT / ".cache"
+PROJECT_ROOT = runtime_paths.PROJECT_ROOT
+DEFAULT_RESULTS_ROOT = runtime_paths.NATIVE_RESULTS_ROOT
+DEFAULT_RUNS_ROOT = runtime_paths.NATIVE_RUNS_ROOT
+DEFAULT_CACHE_ROOT = runtime_paths.NATIVE_CACHE_ROOT
+DEFAULT_MODEL_ROOT = runtime_paths.NATIVE_MODEL_ROOT
+DEFAULT_SIMULATION_METADATA_PATH = runtime_paths.NATIVE_SIMULATION_METADATA_PATH
 
 
 def utc_timestamp() -> str:
@@ -44,11 +45,13 @@ class RunContext:
 
     run_id: str
     project_root: Path = PROJECT_ROOT
-    results_root: Path = DEFAULT_RESULTS_ROOT
-    runs_root: Path = DEFAULT_RUNS_ROOT
-    cache_root: Path = DEFAULT_CACHE_ROOT
-    model_input_root: Path = DEFAULT_MODEL_ROOT
-    simulation_metadata_path: Path = DEFAULT_SIMULATION_METADATA_PATH
+    results_root: Path = field(default_factory=runtime_paths.results_root)
+    runs_root: Path = field(default_factory=runtime_paths.runs_root)
+    cache_root: Path = field(default_factory=runtime_paths.cache_root)
+    model_input_root: Path = field(default_factory=runtime_paths.model_input_root)
+    simulation_metadata_path: Path = field(
+        default_factory=runtime_paths.simulation_metadata_path
+    )
 
     def __post_init__(self) -> None:
         """Reject run identifiers that could escape the configured run root."""
@@ -184,20 +187,27 @@ def git_identity(project_root: Path = PROJECT_ROOT) -> dict[str, Any]:
     Returns:
         Commit hash and a Boolean dirty-state marker.
     """
-    commit = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=project_root,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    status = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=project_root,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
+    embedded_commit = os.environ.get("PYSR_GIT_COMMIT")
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=project_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=project_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return {
+            "commit": embedded_commit or "unknown",
+            "dirty": None,
+        }
     return {"commit": commit, "dirty": bool(status.strip())}
 
 

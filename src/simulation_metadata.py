@@ -5,15 +5,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
-DEFAULT_SIMULATION_METADATA_PATH = (
-    PROJECT_ROOT.parent
-    / "data2sbml"
-    / "output"
-    / "time_curated_images.csv"
+from .runtime_paths import (
+    NATIVE_SIMULATION_METADATA_PATH,
+    simulation_metadata_path,
 )
+
+DEFAULT_SIMULATION_METADATA_PATH = NATIVE_SIMULATION_METADATA_PATH
 
 
 def load_simulation_time(
@@ -22,7 +19,7 @@ def load_simulation_time(
 ) -> float:
     """Return the curated simulation horizon for one model."""
     if metadata_path is None:
-        metadata_path = DEFAULT_SIMULATION_METADATA_PATH
+        metadata_path = simulation_metadata_path()
 
     metadata_path = Path(metadata_path)
 

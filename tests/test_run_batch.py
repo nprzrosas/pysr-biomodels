@@ -2,6 +2,7 @@
 
 import io
 import json
+import signal
 import tempfile
 import threading
 import time
@@ -197,6 +198,50 @@ class BatchIsolationTests(unittest.TestCase):
         self.assertEqual(environment["KEEP"], "yes")
         for name, expected in THREAD_CONTROL_ENVIRONMENT.items():
             self.assertEqual(environment[name], expected)
+
+    def test_batch_registers_and_restores_sigterm_handler(self) -> None:
+        sbml_path = Path(self.temporary_directory.name) / "signal-model.xml"
+        sbml_path.write_text("<sbml/>\n", encoding="utf-8")
+
+        def preflight(model_id: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                model_id=model_id,
+                spec=SimpleNamespace(
+                    model_id=model_id,
+                    model_path=sbml_path,
+                    state_ids=("A",),
+                    n_states=1,
+                ),
+                compatibility=SimpleNamespace(compatible=True, reasons=()),
+                simulation_time=1.0,
+            )
+
+        def worker(model_id: str, worker_id: str) -> WorkerOutcome:
+            return WorkerOutcome(model_id, worker_id, "completed", 0)
+
+        with (
+            patch("src.run_batch.SubprocessModelWorker", return_value=worker),
+            patch("src.run_batch.signal.signal") as register_signal,
+        ):
+            execute_batch(
+                model_ids=("MODEL",),
+                variant=SAVGOL_BENCHMARK_VARIANT,
+                workers=1,
+                phase="preflight",
+                context=RunContext(
+                    run_id="signal-handler-test",
+                    project_root=self.context.project_root,
+                    results_root=self.context.results_root,
+                    runs_root=self.context.runs_root,
+                    cache_root=self.context.cache_root,
+                ),
+                preflight_runner=preflight,
+                output_stream=io.StringIO(),
+            )
+
+        registered_signals = [call.args[0] for call in register_signal.call_args_list]
+        self.assertGreaterEqual(registered_signals.count(signal.SIGINT), 2)
+        self.assertGreaterEqual(registered_signals.count(signal.SIGTERM), 2)
 
     def test_worker_command_uses_variant_and_never_implicitly_opens_test(self) -> None:
         command = model_worker_command(

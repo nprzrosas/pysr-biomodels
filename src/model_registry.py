@@ -2,15 +2,9 @@
 
 from pathlib import Path
 
+from .runtime_paths import NATIVE_MODEL_ROOT, model_input_root
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
-DEFAULT_MODEL_ROOT = (
-    PROJECT_ROOT.parent
-    / "data2sbml"
-    / "output"
-    / "all_curated_biomodels_no_variable_parameters"
-)
+DEFAULT_MODEL_ROOT = NATIVE_MODEL_ROOT
 
 
 def resolve_model_path(
@@ -19,7 +13,7 @@ def resolve_model_path(
 ) -> Path:
     """Resolve and validate the source SBML path for one BioModel."""
     if model_root is None:
-        model_root = DEFAULT_MODEL_ROOT
+        model_root = model_input_root()
 
     model_root = Path(
         model_root

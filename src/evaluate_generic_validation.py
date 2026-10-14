@@ -15,9 +15,7 @@ from .benchmark_variant import (
     validate_derivative_provenance,
 )
 from .model_spec import ModelSpec
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+from .runtime_paths import results_root
 
 TRAINING_DATASETS = (
     "train_04",
@@ -51,9 +49,9 @@ def resolve_validation_experiment_root(
     if not isinstance(variant, BenchmarkVariant):
         raise TypeError("variant must be a validated BenchmarkVariant.")
 
-    root = PROJECT_ROOT if project_root is None else Path(project_root)
+    root = results_root() if project_root is None else Path(project_root) / "results"
 
-    return root / "results" / model_id / variant.experiment_namespace
+    return root / model_id / variant.experiment_namespace
 
 
 def _read_single_metadata_row(path: Path) -> dict[str, object]:
