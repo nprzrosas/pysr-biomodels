@@ -1,0 +1,14 @@
+[project]
+name = "pysr-only"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "libroadrunner==2.8.0",
+    "matplotlib>=3.11.2",
+    "pandas>=2.2,<3",
+    "pysr==1.5.9",
+    "python-libsbml>=5.21.2",
+    "scipy>=1.17,<2",
+]

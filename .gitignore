@@ -1,0 +1,32 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Scientific outputs
+results/
+
+# Local project backups
+project_backups/
+
+# Test and tool caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editor / OS files
+.vscode/
+.DS_Store
+
+# Local/manual source backups
+*.backup
+src/*_frozen.py
+src/reporting/*_frozen.py
+src/reporting/*_before_*_fix.py
