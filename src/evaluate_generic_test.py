@@ -5,17 +5,20 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .benchmark_variant import (
+    EXACT_BENCHMARK_VARIANT,
+    BenchmarkVariant,
+)
 from .evaluate_generic_validation import (
     calculate_state_metrics,
     compile_rhs_system,
     integrate_system,
+    resolve_validation_experiment_root,
+    validate_candidate_pool_provenance,
 )
 from .model_spec import ModelSpec
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
-EXPERIMENT_NAME = "generic_exact_experiment"
 
 SELECTION_METHOD = "coordinate_search"
 
@@ -31,6 +34,29 @@ TRAINING_DATASETS = (
     "train_16",
     "train_32",
 )
+
+
+def resolve_test_experiment_root(
+    *,
+    model_id: str,
+    variant: BenchmarkVariant = EXACT_BENCHMARK_VARIANT,
+    project_root: Path | None = None,
+) -> Path:
+    """Resolve the protected experiment root for held-out evaluation.
+
+    Args:
+        model_id: BioModels identifier used as the model directory.
+        variant: Validated derivative method and result namespace.
+        project_root: Optional project root override for tests.
+
+    Returns:
+        Variant-specific model experiment directory.
+    """
+    return resolve_validation_experiment_root(
+        model_id=model_id,
+        variant=variant,
+        project_root=project_root,
+    )
 
 
 def load_selected_system(
@@ -113,6 +139,61 @@ def load_selected_system(
     return row, expressions
 
 
+def load_frozen_selected_systems(
+    *,
+    spec: ModelSpec,
+    variant: BenchmarkVariant = EXACT_BENCHMARK_VARIANT,
+    project_root: Path | None = None,
+):
+    """Validate provenance and load every frozen coordinate selection.
+
+    This check is intentionally performed before held-out trajectories are
+    materialized by the production runner. Only coordinate-selected artifacts
+    are loaded; exhaustive validation optima are not consulted.
+
+    Args:
+        spec: Ordered model metadata.
+        variant: Validated derivative method and protected namespace.
+        project_root: Optional project root override for tests.
+
+    Returns:
+        Mapping from training condition to its selected row and equations.
+    """
+    experiment_root = resolve_test_experiment_root(
+        model_id=spec.model_id,
+        variant=variant,
+        project_root=project_root,
+    )
+
+    validate_candidate_pool_provenance(
+        experiment_root=experiment_root,
+        variant=variant,
+        dataset_names=TRAINING_DATASETS,
+    )
+
+    selections = {}
+
+    for dataset_name in TRAINING_DATASETS:
+        experiment_dir = experiment_root / dataset_name
+        selected_row, expressions = load_selected_system(
+            experiment_dir=experiment_dir,
+            spec=spec,
+        )
+
+        if (
+            "dataset_name" in selected_row.index
+            and str(selected_row["dataset_name"]) != dataset_name
+        ):
+            raise ValueError(
+                "Selected system dataset_name does not match its directory: "
+                f"{selected_row['dataset_name']} != {dataset_name}."
+            )
+
+        selections[dataset_name] = (selected_row, expressions)
+
+    return selections
+
+
 def load_state_scales(
     *,
     experiment_dir,
@@ -172,13 +253,38 @@ def evaluate_selected_system_on_test(
     spec: ModelSpec,
     dataset_name,
     test_frame,
+    variant: BenchmarkVariant = EXACT_BENCHMARK_VARIANT,
+    project_root: Path | None = None,
+    frozen_selection=None,
 ):
-    """Evaluate one coordinate-selected system on held-out test trajectories."""
+    """Evaluate one coordinate-selected system on held-out test trajectories.
+
+    Args:
+        spec: Ordered model metadata.
+        dataset_name: Frozen training-size condition.
+        test_frame: Held-out state trajectories.
+        variant: Validated derivative method and protected namespace.
+        project_root: Optional project root override for tests.
+        frozen_selection: Prevalidated selected row and equations, if loaded
+            before held-out test materialization.
+
+    Returns:
+        Test summary for the frozen coordinate-selected system.
+    """
+    experiment_root = resolve_test_experiment_root(
+        model_id=spec.model_id,
+        variant=variant,
+        project_root=project_root,
+    )
+
+    validate_candidate_pool_provenance(
+        experiment_root=experiment_root,
+        variant=variant,
+        dataset_names=(dataset_name,),
+    )
+
     experiment_dir = (
-        PROJECT_ROOT
-        / "results"
-        / spec.model_id
-        / EXPERIMENT_NAME
+        experiment_root
         / dataset_name
     )
 
@@ -192,15 +298,13 @@ def evaluate_selected_system_on_test(
         / TEST_DIRECTORY
     )
 
-    test_output_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    selected_row, expressions = load_selected_system(
-        experiment_dir=experiment_dir,
-        spec=spec,
-    )
+    if frozen_selection is None:
+        selected_row, expressions = load_selected_system(
+            experiment_dir=experiment_dir,
+            spec=spec,
+        )
+    else:
+        selected_row, expressions = frozen_selection
 
     state_scales = load_state_scales(
         experiment_dir=experiment_dir,
@@ -257,7 +361,7 @@ def evaluate_selected_system_on_test(
                 initial_values=initial_values,
             )
 
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001
             failed_trajectories.append(
                 {
                     "trajectory_id": trajectory_id,
@@ -500,6 +604,11 @@ def evaluate_selected_system_on_test(
                 f"mean_r2_{state_id}"
             ] = np.nan
 
+    test_output_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
     pd.DataFrame(
         [summary]
     ).to_csv(
@@ -540,8 +649,47 @@ def evaluate_all_selected_systems(
     *,
     spec: ModelSpec,
     test_frame,
+    variant: BenchmarkVariant = EXACT_BENCHMARK_VARIANT,
+    project_root: Path | None = None,
+    frozen_selections=None,
 ):
-    """Evaluate every frozen coordinate-selected system on held-out test data."""
+    """Evaluate every frozen coordinate-selected system on held-out test data.
+
+    Args:
+        spec: Ordered model metadata.
+        test_frame: Held-out state trajectories.
+        variant: Validated derivative method and protected namespace.
+        project_root: Optional project root override for tests.
+        frozen_selections: Prevalidated selections loaded before test data.
+
+    Returns:
+        One summary row per training-size condition.
+    """
+    experiment_root = resolve_test_experiment_root(
+        model_id=spec.model_id,
+        variant=variant,
+        project_root=project_root,
+    )
+
+    validate_candidate_pool_provenance(
+        experiment_root=experiment_root,
+        variant=variant,
+        dataset_names=TRAINING_DATASETS,
+    )
+
+    if frozen_selections is None:
+        frozen_selections = load_frozen_selected_systems(
+            spec=spec,
+            variant=variant,
+            project_root=project_root,
+        )
+
+    if tuple(frozen_selections) != TRAINING_DATASETS:
+        raise ValueError(
+            "Frozen selections must cover train_04, train_08, train_16, "
+            "and train_32 in canonical order."
+        )
+
     summaries = []
 
     for dataset_name in TRAINING_DATASETS:
@@ -556,6 +704,9 @@ def evaluate_all_selected_systems(
             spec=spec,
             dataset_name=dataset_name,
             test_frame=test_frame,
+            variant=variant,
+            project_root=project_root,
+            frozen_selection=frozen_selections[dataset_name],
         )
 
         summaries.append(
@@ -627,10 +778,7 @@ def evaluate_all_selected_systems(
     )
 
     output_dir = (
-        PROJECT_ROOT
-        / "results"
-        / spec.model_id
-        / EXPERIMENT_NAME
+        experiment_root
         / SELECTION_DIRECTORY
         / TEST_DIRECTORY
     )

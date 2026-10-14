@@ -411,6 +411,14 @@ uv run python -m src.select_generic_system BIOMD0000000079 --derivative-method e
 uv run python -m src.select_generic_system BIOMD0000000079 --derivative-method savgol
 ```
 
+After a coordinate selection is frozen, held-out evaluation uses the same
+variant-specific namespace:
+
+```bash
+uv run python -m src.run_generic_test BIOMD0000000079 --derivative-method exact
+uv run python -m src.run_generic_test BIOMD0000000079 --derivative-method savgol
+```
+
 | Role | Scripts | Effect |
 |---|---|---|
 | Scientific computation | `src/run_generic_benchmark.py`, `src/run_pysr_generic.py`, `src/simulate_generic.py`, `src/experimental_design_generic.py` | Generate trajectories and derivatives and fit PySR equations. |
