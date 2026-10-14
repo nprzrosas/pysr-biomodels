@@ -1,5 +1,6 @@
 """Generic multistate PySR inference for ODE systems."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -9,6 +10,11 @@ import pandas as pd
 import sympy as sp
 from pysr import PySRRegressor
 
+from .benchmark_variant import (
+    EXACT_BENCHMARK_VARIANT,
+    BenchmarkVariant,
+    validate_derivative_provenance,
+)
 from .model_spec import ModelSpec
 
 
@@ -26,6 +32,35 @@ TOP_K = 8
 NITERATIONS = 60
 MAXSIZE = 20
 RANDOM_SEED = 1010
+
+
+def resolve_experiment_root(
+    *,
+    model_id: str,
+    variant: BenchmarkVariant = EXACT_BENCHMARK_VARIANT,
+    project_root: Path | None = None,
+) -> Path:
+    """Resolve the protected result root for a benchmark variant.
+
+    Args:
+        model_id: BioModels identifier used as the model directory.
+        variant: Validated derivative method and namespace association.
+        project_root: Optional project root override for tests.
+
+    Returns:
+        Result directory for the requested model and benchmark variant.
+    """
+    if not isinstance(variant, BenchmarkVariant):
+        raise TypeError("variant must be a validated BenchmarkVariant.")
+
+    root = PROJECT_ROOT if project_root is None else Path(project_root)
+
+    return (
+        root
+        / "results"
+        / model_id
+        / variant.experiment_namespace
+    )
 
 
 @dataclass(frozen=True)
@@ -453,15 +488,32 @@ def run_generic_training_experiment(
     dataset_name,
     train_frame,
     dataset_generation_seconds=0.0,
+    variant: BenchmarkVariant = EXACT_BENCHMARK_VARIANT,
+    derivative_provenance: Mapping[str, object],
 ):
-    """Fit one independent PySR RHS per dynamic state."""
+    """Fit one independent PySR RHS per state in a protected namespace.
+
+    Args:
+        spec: Model metadata defining the states and model identifier.
+        dataset_name: Nested training-condition name.
+        train_frame: State and derivative-target training table.
+        dataset_generation_seconds: Time spent preparing all development data.
+        variant: Validated derivative method and result namespace.
+        derivative_provenance: Validated lineage recorded during generation.
+
+    Returns:
+        Timing, normalization, and per-state fit results.
+    """
+    validate_derivative_provenance(
+        provenance=derivative_provenance,
+        variant=variant,
+    )
+
     inference_start_time = perf_counter()
 
-    experiment_root = (
-        PROJECT_ROOT
-        / "results"
-        / spec.model_id
-        / "generic_exact_experiment"
+    experiment_root = resolve_experiment_root(
+        model_id=spec.model_id,
+        variant=variant,
     )
 
     output_dir = (
@@ -627,7 +679,8 @@ def run_generic_training_experiment(
         "maxsize": MAXSIZE,
         "top_k": TOP_K,
         "random_seed": RANDOM_SEED,
-        "derivative_method": "exact",
+        "derivative_method": variant.derivative_method.value,
+        "experiment_namespace": variant.experiment_namespace,
     }
 
     for state_id in spec.state_ids:

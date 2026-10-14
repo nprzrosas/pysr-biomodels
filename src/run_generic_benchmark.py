@@ -1,11 +1,16 @@
-"""Run generic exact-derivative PySR inference for one BioModel."""
+"""Run generic variant-aware PySR inference for one BioModel."""
 
 import argparse
 from pathlib import Path
 
 import pandas as pd
 
-from .benchmark_variant import EXACT_BENCHMARK_VARIANT
+from .benchmark_variant import (
+    EXACT_BENCHMARK_VARIANT,
+    BenchmarkVariant,
+    get_benchmark_variant,
+    validate_derivative_provenance,
+)
 from .experimental_design_generic import (
     build_experimental_design,
 )
@@ -18,16 +23,12 @@ from .preflight import (
 )
 from .run_pysr_generic import (
     TRAINING_DATASETS,
+    resolve_experiment_root,
     run_generic_training_experiment,
 )
 from .simulate_generic import (
     build_generic_development_dataset,
 )
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
-EXPERIMENT_NAME = EXACT_BENCHMARK_VARIANT.experiment_namespace
-
 
 def validate_development_dataset(
     *,
@@ -66,13 +67,27 @@ def write_experiment_metadata(
     result,
     design,
     dataset,
+    variant: BenchmarkVariant = EXACT_BENCHMARK_VARIANT,
 ) -> Path:
-    """Write model-level metadata describing the frozen development run."""
-    experiment_root = (
-        PROJECT_ROOT
-        / "results"
-        / result.model_id
-        / EXPERIMENT_NAME
+    """Write model-level metadata for one validated benchmark variant.
+
+    Args:
+        result: Successful generic preflight result.
+        design: Frozen generic initial-condition design.
+        dataset: In-memory development dataset.
+        variant: Validated derivative method and result namespace.
+
+    Returns:
+        Path to the written experiment metadata table.
+    """
+    validate_derivative_provenance(
+        provenance=dataset.derivative_provenance,
+        variant=variant,
+    )
+
+    experiment_root = resolve_experiment_root(
+        model_id=result.model_id,
+        variant=variant,
     )
 
     experiment_root.mkdir(
@@ -105,13 +120,32 @@ def write_experiment_metadata(
             design.test
         ),
         "test_materialized": False,
-        "derivative_method": (
-            EXACT_BENCHMARK_VARIANT.derivative_method.value
-        ),
+        "derivative_method": variant.derivative_method.value,
+        "experiment_namespace": variant.experiment_namespace,
         "dataset_generation_seconds": (
             dataset.preprocessing_seconds
         ),
     }
+
+    identity_fields = {
+        "derivative_method",
+        "experiment_namespace",
+    }
+    metadata.update(
+        {
+            key: value
+            for key, value in dataset.derivative_provenance.items()
+            if key not in identity_fields
+        }
+    )
+
+    if (
+        metadata["derivative_method"]
+        != variant.derivative_method.value
+        or metadata["experiment_namespace"]
+        != variant.experiment_namespace
+    ):
+        raise RuntimeError("Authoritative benchmark identity changed in metadata.")
 
     metadata_path = (
         experiment_root
@@ -131,8 +165,17 @@ def write_experiment_metadata(
 def run_model(
     *,
     model_id: str,
+    variant: BenchmarkVariant = EXACT_BENCHMARK_VARIANT,
 ) -> None:
-    """Run all frozen training sizes for one compatible BioModel."""
+    """Run all frozen training sizes for one benchmark variant.
+
+    Args:
+        model_id: BioModels identifier to infer.
+        variant: Validated derivative method and result namespace.
+    """
+    if not isinstance(variant, BenchmarkVariant):
+        raise TypeError("variant must be a validated BenchmarkVariant.")
+
     result = run_preflight(
         model_id=model_id,
     )
@@ -161,13 +204,26 @@ def run_model(
     print(
         "Held-out test trajectories will NOT be materialized."
     )
+    print(
+        "Derivative method:",
+        variant.derivative_method.value,
+    )
+    print(
+        "Experiment namespace:",
+        variant.experiment_namespace,
+    )
 
     dataset = build_generic_development_dataset(
         spec=result.spec,
         design=design,
         duration=result.simulation_time,
         points=101,
-        variant=EXACT_BENCHMARK_VARIANT,
+        variant=variant,
+    )
+
+    validate_derivative_provenance(
+        provenance=dataset.derivative_provenance,
+        variant=variant,
     )
 
     validate_development_dataset(
@@ -195,6 +251,7 @@ def run_model(
         result=result,
         design=design,
         dataset=dataset,
+        variant=variant,
     )
 
     print(
@@ -215,6 +272,8 @@ def run_model(
             dataset_generation_seconds=(
                 dataset.preprocessing_seconds
             ),
+            variant=variant,
+            derivative_provenance=dataset.derivative_provenance,
         )
 
     print()
@@ -248,11 +307,38 @@ def run_model(
     )
 
 
-def parse_arguments():
-    """Parse command-line arguments."""
+def parse_benchmark_variant(value: str) -> BenchmarkVariant:
+    """Resolve a CLI derivative method through the variant registry.
+
+    Args:
+        value: User-supplied derivative-method identifier.
+
+    Returns:
+        Validated frozen benchmark variant.
+
+    Raises:
+        argparse.ArgumentTypeError: If the derivative method is unknown.
+    """
+    try:
+        return get_benchmark_variant(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
+def parse_arguments(
+    arguments: list[str] | None = None,
+) -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Args:
+        arguments: Optional argument list for tests; defaults to ``sys.argv``.
+
+    Returns:
+        Parsed model identifier and validated benchmark variant.
+    """
     parser = argparse.ArgumentParser(
         description=(
-            "Run exact-derivative generic PySR inference "
+            "Run generic PySR inference "
             "for one compatible BioModel."
         )
     )
@@ -265,7 +351,18 @@ def parse_arguments():
         ),
     )
 
-    return parser.parse_args()
+    parser.add_argument(
+        "--derivative-method",
+        default=EXACT_BENCHMARK_VARIANT,
+        type=parse_benchmark_variant,
+        metavar="{exact,savgol}",
+        help=(
+            "Derivative-target method. Defaults to exact; "
+            "savgol selects the frozen Savitzky-Golay v1 variant."
+        ),
+    )
+
+    return parser.parse_args(arguments)
 
 
 def main() -> None:
@@ -274,6 +371,7 @@ def main() -> None:
 
     run_model(
         model_id=arguments.model_id,
+        variant=arguments.derivative_method,
     )
 
 

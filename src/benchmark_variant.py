@@ -1,5 +1,6 @@
 """Validated benchmark variants for generic derivative generation."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 
@@ -141,6 +142,58 @@ class BenchmarkVariant:
             )
 
         return provenance
+
+
+def validate_derivative_provenance(
+    *,
+    provenance: Mapping[str, object] | None,
+    variant: BenchmarkVariant,
+) -> None:
+    """Validate dataset lineage against one benchmark variant.
+
+    Args:
+        provenance: Derivative-generation provenance stored with a dataset.
+        variant: Authoritative derivative method and namespace selection.
+
+    Raises:
+        TypeError: If the variant or provenance has an invalid container type.
+        ValueError: If identity fields are absent or conflict with the variant.
+    """
+    if not isinstance(variant, BenchmarkVariant):
+        raise TypeError("variant must be a validated BenchmarkVariant.")
+
+    if provenance is None or not isinstance(provenance, Mapping):
+        raise TypeError("Derivative provenance must be a mapping.")
+
+    missing_marker = "<missing>"
+    observed_method_value = provenance.get(
+        "derivative_method",
+        missing_marker,
+    )
+    observed_namespace = provenance.get(
+        "experiment_namespace",
+        missing_marker,
+    )
+
+    if isinstance(observed_method_value, DerivativeMethod):
+        observed_method = observed_method_value.value
+    else:
+        observed_method = observed_method_value
+
+    expected_method = variant.derivative_method.value
+    expected_namespace = variant.experiment_namespace
+
+    if (
+        observed_method != expected_method
+        or observed_namespace != expected_namespace
+    ):
+        raise ValueError(
+            "Derivative provenance does not match the benchmark variant: "
+            f"expected derivative_method='{expected_method}', "
+            f"observed derivative_method='{observed_method}'; "
+            f"expected experiment_namespace='{expected_namespace}', "
+            f"observed experiment_namespace='{observed_namespace}'."
+        )
 
 
 EXACT_BENCHMARK_VARIANT = BenchmarkVariant(
