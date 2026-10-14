@@ -11,6 +11,7 @@ from typing import Any, Self, TextIO
 import psutil
 
 DEFAULT_SAMPLING_INTERVAL_SECONDS = 5.0
+BYTES_PER_GIBIBYTE = 1024**3
 
 TELEMETRY_COLUMNS = (
     "timestamp_utc",
@@ -27,7 +28,11 @@ TELEMETRY_COLUMNS = (
     "process_tree_rss_bytes",
     "system_cpu_percent",
     "system_memory_used_bytes",
+    "system_memory_available_bytes",
+    "effective_memory_available_bytes",
     "system_memory_percent",
+    "system_swap_total_bytes",
+    "system_swap_used_bytes",
 )
 
 
@@ -98,6 +103,139 @@ def read_cgroup_v2_memory_limit(
     return limit if limit > 0 else None
 
 
+def read_cgroup_v2_memory_current(
+    cgroup_root: Path = Path("/sys/fs/cgroup"),
+) -> int | None:
+    """Read current cgroup-v2 memory consumption.
+
+    Args:
+        cgroup_root: Mounted cgroup-v2 control directory.
+
+    Returns:
+        Current consumption in bytes, or ``None`` when unavailable.
+    """
+    value = _read_text(Path(cgroup_root) / "memory.current")
+    if value is None:
+        return None
+
+    try:
+        current = int(value)
+    except ValueError:
+        return None
+    return current if current >= 0 else None
+
+
+def memory_snapshot(
+    cgroup_root: Path = Path("/sys/fs/cgroup"),
+) -> dict[str, int | float | None]:
+    """Capture host and cgroup-aware available-memory information.
+
+    Args:
+        cgroup_root: Mounted cgroup-v2 control directory.
+
+    Returns:
+        JSON-safe memory and swap measurements. Effective available memory is
+        the smaller of host-available memory and remaining cgroup capacity.
+    """
+    virtual_memory = psutil.virtual_memory()
+    swap_memory = psutil.swap_memory()
+    cgroup_limit = read_cgroup_v2_memory_limit(cgroup_root)
+    cgroup_current = read_cgroup_v2_memory_current(cgroup_root)
+    effective_available = int(virtual_memory.available)
+    if cgroup_limit is not None and cgroup_current is not None:
+        effective_available = min(
+            effective_available,
+            max(0, cgroup_limit - cgroup_current),
+        )
+
+    return {
+        "system_memory_total_bytes": int(virtual_memory.total),
+        "system_memory_used_bytes": int(virtual_memory.used),
+        "system_memory_available_bytes": int(virtual_memory.available),
+        "system_memory_percent": float(virtual_memory.percent),
+        "system_swap_total_bytes": int(swap_memory.total),
+        "system_swap_used_bytes": int(swap_memory.used),
+        "cgroup_v2_memory_limit_bytes": cgroup_limit,
+        "cgroup_v2_memory_current_bytes": cgroup_current,
+        "effective_memory_available_bytes": effective_available,
+    }
+
+
+@dataclass(frozen=True)
+class MemorySafetyPolicy:
+    """Configurable coordinator-only memory thresholds.
+
+    A zero threshold disables the corresponding gate. The policy influences
+    orchestration only; it never changes scientific settings or results.
+    """
+
+    minimum_launch_available_bytes: int = 0
+    emergency_available_bytes: int = 0
+    emergency_consecutive_samples: int = 2
+
+    def __post_init__(self) -> None:
+        """Validate non-negative thresholds and a positive sample count."""
+        if self.minimum_launch_available_bytes < 0:
+            raise ValueError("Minimum launch memory cannot be negative.")
+        if self.emergency_available_bytes < 0:
+            raise ValueError("Emergency memory cannot be negative.")
+        if self.emergency_consecutive_samples < 1:
+            raise ValueError("Emergency sample count must be at least one.")
+
+
+class MemoryPressureGuard:
+    """Detect persistent low-memory conditions without reacting to spikes."""
+
+    def __init__(self, policy: MemorySafetyPolicy) -> None:
+        """Initialize the guard.
+
+        Args:
+            policy: Thresholds controlling launch and runtime decisions.
+        """
+        self.policy = policy
+        self.consecutive_low_samples = 0
+
+    def observe(self, available_bytes: int) -> bool:
+        """Record one sample and report whether emergency action is required.
+
+        Args:
+            available_bytes: Effective host/cgroup memory currently available.
+
+        Returns:
+            ``True`` after the configured number of consecutive low samples.
+        """
+        if self.policy.emergency_available_bytes <= 0:
+            self.consecutive_low_samples = 0
+            return False
+        if available_bytes < self.policy.emergency_available_bytes:
+            self.consecutive_low_samples += 1
+        else:
+            self.consecutive_low_samples = 0
+        return self.consecutive_low_samples >= self.policy.emergency_consecutive_samples
+
+
+def validate_prelaunch_memory(
+    policy: MemorySafetyPolicy,
+    snapshot: dict[str, int | float | None],
+) -> None:
+    """Reject a batch before filesystem or worker side effects when unsafe.
+
+    Args:
+        policy: Configured memory thresholds.
+        snapshot: Current result from :func:`memory_snapshot`.
+
+    Raises:
+        MemoryError: If effective available memory is below the launch floor.
+    """
+    threshold = policy.minimum_launch_available_bytes
+    available = int(snapshot["effective_memory_available_bytes"] or 0)
+    if threshold > 0 and available < threshold:
+        raise MemoryError(
+            "Pre-launch memory safety gate blocked the batch: "
+            f"available={available} bytes, required={threshold} bytes."
+        )
+
+
 def discover_resources(cgroup_root: Path = Path("/sys/fs/cgroup")) -> dict[str, Any]:
     """Discover host, affinity, and cgroup-visible compute resources.
 
@@ -123,9 +261,9 @@ def discover_resources(cgroup_root: Path = Path("/sys/fs/cgroup")) -> dict[str, 
     ]
     effective_cpu_capacity = min(capacity_candidates) if capacity_candidates else 1.0
 
-    virtual_memory = psutil.virtual_memory()
-    cgroup_memory_limit = read_cgroup_v2_memory_limit(cgroup_root)
-    effective_memory_limit = virtual_memory.total
+    memory = memory_snapshot(cgroup_root)
+    cgroup_memory_limit = memory["cgroup_v2_memory_limit_bytes"]
+    effective_memory_limit = int(memory["system_memory_total_bytes"] or 0)
     if cgroup_memory_limit is not None:
         effective_memory_limit = min(effective_memory_limit, cgroup_memory_limit)
 
@@ -135,8 +273,7 @@ def discover_resources(cgroup_root: Path = Path("/sys/fs/cgroup")) -> dict[str, 
         "affinity_visible_cpu_count": affinity_count,
         "cgroup_v2_cpu_capacity": cgroup_cpu_capacity,
         "effective_cpu_capacity": effective_cpu_capacity,
-        "system_memory_total_bytes": virtual_memory.total,
-        "system_memory_available_bytes": virtual_memory.available,
+        **memory,
         "cgroup_v2_memory_limit_bytes": cgroup_memory_limit,
         "effective_memory_limit_bytes": effective_memory_limit,
     }
@@ -247,7 +384,7 @@ class ProcessTreeSampler:
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
 
-        system_memory = psutil.virtual_memory()
+        memory = memory_snapshot()
         return {
             "timestamp_utc": datetime.now(UTC).isoformat(),
             "elapsed_seconds": round(float(elapsed_seconds), 6),
@@ -264,8 +401,14 @@ class ProcessTreeSampler:
             ),
             "process_tree_rss_bytes": rss_bytes,
             "system_cpu_percent": psutil.cpu_percent(interval=None),
-            "system_memory_used_bytes": system_memory.used,
-            "system_memory_percent": system_memory.percent,
+            "system_memory_used_bytes": memory["system_memory_used_bytes"],
+            "system_memory_available_bytes": memory["system_memory_available_bytes"],
+            "effective_memory_available_bytes": memory[
+                "effective_memory_available_bytes"
+            ],
+            "system_memory_percent": memory["system_memory_percent"],
+            "system_swap_total_bytes": memory["system_swap_total_bytes"],
+            "system_swap_used_bytes": memory["system_swap_used_bytes"],
         }
 
 
@@ -348,10 +491,15 @@ class PlainTextProgressReporter:
             elapsed_seconds = max(float(row["elapsed_seconds"]) for row in active_rows)
             system_cpu = float(active_rows[0]["system_cpu_percent"])
             system_memory = float(active_rows[0]["system_memory_percent"])
+            available_gib = (
+                float(active_rows[0]["effective_memory_available_bytes"])
+                / BYTES_PER_GIBIBYTE
+            )
             summary += (
                 f" elapsed={elapsed_seconds:.1f}s"
                 f" system_cpu={system_cpu:.1f}%"
                 f" system_ram={system_memory:.1f}%"
+                f" available={available_gib:.2f}GiB"
             )
         self.stream.write(f"{summary}\n")
         for row in active_rows:

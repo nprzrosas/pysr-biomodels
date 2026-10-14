@@ -14,6 +14,7 @@ from src.benchmark_variant import (
     EXACT_BENCHMARK_VARIANT,
     SAVGOL_BENCHMARK_VARIANT,
 )
+from src.resource_monitor import MemorySafetyPolicy
 from src.run_batch import (
     THREAD_CONTROL_ENVIRONMENT,
     WorkerOutcome,
@@ -295,6 +296,102 @@ class BatchIsolationTests(unittest.TestCase):
         self.assertFalse(payload["models"]["MODEL_A"]["exhaustive_permitted"])
         self.assertTrue(context.telemetry_path.exists())
         self.assertIn("completed=2/2", output.getvalue())
+
+    def test_memory_gate_blocks_before_manifest_or_worker_creation(self) -> None:
+        context = RunContext(
+            run_id="memory-block-test",
+            project_root=Path(__file__).resolve().parents[1],
+            results_root=self.context.results_root,
+            runs_root=self.context.runs_root,
+            cache_root=self.context.cache_root,
+        )
+        resources = {
+            "effective_memory_available_bytes": 500,
+        }
+        with (
+            patch("src.run_batch.discover_resources", return_value=resources),
+            patch("src.run_batch.SubprocessModelWorker") as worker_factory,
+            self.assertRaisesRegex(MemoryError, "blocked the batch"),
+        ):
+            execute_batch(
+                model_ids=("MODEL",),
+                variant=SAVGOL_BENCHMARK_VARIANT,
+                workers=4,
+                phase="pretest",
+                context=context,
+                memory_safety_policy=MemorySafetyPolicy(
+                    minimum_launch_available_bytes=600
+                ),
+                preflight_runner=lambda _model_id: self.fail(
+                    "Preflight must not run after a failed memory gate."
+                ),
+                output_stream=io.StringIO(),
+            )
+        self.assertFalse(context.run_directory.exists())
+        worker_factory.assert_not_called()
+
+    def test_persistent_runtime_pressure_stops_new_model_scheduling(self) -> None:
+        sbml_path = Path(self.temporary_directory.name) / "memory-model.xml"
+        sbml_path.write_text("<sbml/>\n", encoding="utf-8")
+        context = RunContext(
+            run_id="memory-runtime-test",
+            project_root=Path(__file__).resolve().parents[1],
+            results_root=self.context.results_root,
+            runs_root=self.context.runs_root,
+            cache_root=self.context.cache_root,
+        )
+        started: list[str] = []
+
+        def preflight(model_id: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                model_id=model_id,
+                spec=SimpleNamespace(
+                    model_id=model_id,
+                    model_path=sbml_path,
+                    state_ids=("A", "B", "C", "D"),
+                    n_states=4,
+                ),
+                compatibility=SimpleNamespace(compatible=True, reasons=()),
+                simulation_time=20.0,
+            )
+
+        def worker(model_id: str, worker_id: str) -> WorkerOutcome:
+            started.append(model_id)
+            time.sleep(0.05)
+            return WorkerOutcome(model_id, worker_id, "completed", 0)
+
+        resources = {
+            "effective_memory_available_bytes": 1_000,
+            "effective_cpu_capacity": 1.0,
+        }
+        low_memory = {"effective_memory_available_bytes": 100}
+        with (
+            patch("src.run_batch.discover_resources", return_value=resources),
+            patch("src.run_batch.memory_snapshot", return_value=low_memory),
+            patch("src.run_batch.SubprocessModelWorker", return_value=worker),
+            patch("src.run_batch.ActiveProcessRegistry.terminate_all") as terminate,
+        ):
+            outcomes = execute_batch(
+                model_ids=("MODEL_A", "MODEL_B"),
+                variant=SAVGOL_BENCHMARK_VARIANT,
+                workers=1,
+                phase="pretest",
+                context=context,
+                telemetry_interval_seconds=0.01,
+                memory_safety_policy=MemorySafetyPolicy(
+                    emergency_available_bytes=200,
+                    emergency_consecutive_samples=2,
+                ),
+                preflight_runner=preflight,
+                output_stream=io.StringIO(),
+            )
+
+        payload = json.loads(context.manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(started, ["MODEL_A"])
+        self.assertEqual(len(outcomes), 1)
+        self.assertEqual(payload["batch_status"], "memory_safety_stopped")
+        self.assertEqual(len(payload["memory_safety"]["events"]), 1)
+        terminate.assert_called_once()
 
     def test_resume_rejects_changed_sbml_before_worker_creation(self) -> None:
         sbml_path = Path(self.temporary_directory.name) / "model.xml"

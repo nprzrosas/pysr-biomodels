@@ -12,13 +12,18 @@ import unittest
 from pathlib import Path
 
 from src.resource_monitor import (
+    MemoryPressureGuard,
+    MemorySafetyPolicy,
     PlainTextProgressReporter,
     ProcessTreeSampler,
     TelemetryWriter,
     WorkerTelemetryContext,
     discover_resources,
+    memory_snapshot,
     read_cgroup_v2_cpu_capacity,
+    read_cgroup_v2_memory_current,
     read_cgroup_v2_memory_limit,
+    validate_prelaunch_memory,
 )
 
 
@@ -43,6 +48,39 @@ class ResourceDiscoveryTests(unittest.TestCase):
             (root / "memory.max").write_text("max\n", encoding="utf-8")
             self.assertIsNone(read_cgroup_v2_cpu_capacity(root))
             self.assertIsNone(read_cgroup_v2_memory_limit(root))
+
+    def test_cgroup_memory_availability_limits_host_availability(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / "memory.max").write_text("1073741824\n", encoding="utf-8")
+            (root / "memory.current").write_text("805306368\n", encoding="utf-8")
+            self.assertEqual(read_cgroup_v2_memory_current(root), 805306368)
+            snapshot = memory_snapshot(root)
+            self.assertEqual(snapshot["effective_memory_available_bytes"], 268435456)
+
+
+class MemorySafetyTests(unittest.TestCase):
+    """Verify launch and persistent runtime memory protection."""
+
+    def test_prelaunch_gate_rejects_insufficient_memory(self) -> None:
+        policy = MemorySafetyPolicy(minimum_launch_available_bytes=600)
+        with self.assertRaisesRegex(MemoryError, "blocked the batch"):
+            validate_prelaunch_memory(
+                policy,
+                {"effective_memory_available_bytes": 599},
+            )
+
+    def test_runtime_gate_requires_consecutive_low_samples(self) -> None:
+        guard = MemoryPressureGuard(
+            MemorySafetyPolicy(
+                emergency_available_bytes=200,
+                emergency_consecutive_samples=2,
+            )
+        )
+        self.assertFalse(guard.observe(199))
+        self.assertFalse(guard.observe(201))
+        self.assertFalse(guard.observe(199))
+        self.assertTrue(guard.observe(198))
 
 
 class ProcessTreeTelemetryTests(unittest.TestCase):
@@ -142,7 +180,11 @@ while time.monotonic() < end:
                 "process_tree_rss_bytes": 1024,
                 "system_cpu_percent": 50.0,
                 "system_memory_used_bytes": 2048,
+                "system_memory_available_bytes": 4096,
+                "effective_memory_available_bytes": 4096,
                 "system_memory_percent": 25.0,
+                "system_swap_total_bytes": 8192,
+                "system_swap_used_bytes": 1024,
             }
             with TelemetryWriter(path) as writer:
                 writer.write(row)
@@ -165,6 +207,7 @@ while time.monotonic() < end:
             "process_tree_rss_bytes": 2 * 1024**3,
             "system_cpu_percent": 40.0,
             "system_memory_percent": 55.0,
+            "effective_memory_available_bytes": 4 * 1024**3,
         }
         PlainTextProgressReporter(stream).report(
             completed=0,
@@ -176,6 +219,7 @@ while time.monotonic() < end:
         self.assertIn("elapsed=12.5s", output)
         self.assertIn("system_cpu=40.0%", output)
         self.assertIn("system_ram=55.0%", output)
+        self.assertIn("available=4.00GiB", output)
         self.assertIn("pid=123", output)
         self.assertIn("cpu=250.0%", output)
         self.assertIn("capacity=15.6%", output)

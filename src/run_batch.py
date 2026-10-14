@@ -13,7 +13,7 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from time import monotonic
+from time import monotonic, sleep
 from typing import Any
 
 import psutil
@@ -21,12 +21,17 @@ import psutil
 from .benchmark_variant import BenchmarkVariant, get_benchmark_variant
 from .preflight import PreflightResult, run_preflight
 from .resource_monitor import (
+    BYTES_PER_GIBIBYTE,
     DEFAULT_SAMPLING_INTERVAL_SECONDS,
+    MemoryPressureGuard,
+    MemorySafetyPolicy,
     PlainTextProgressReporter,
     ProcessTreeSampler,
     TelemetryWriter,
     WorkerTelemetryContext,
     discover_resources,
+    memory_snapshot,
+    validate_prelaunch_memory,
 )
 from .run_manifest import (
     ArtifactCheckpoint,
@@ -114,9 +119,14 @@ class ActiveProcessRegistry:
         with self._lock:
             return tuple(self._workers.values())
 
-    def terminate_all(self) -> None:
-        """Request termination of every active process group."""
-        for worker in self.snapshot():
+    def terminate_all(self, grace_seconds: float = 10.0) -> None:
+        """Terminate owned process groups, escalating after a grace period.
+
+        Args:
+            grace_seconds: Time allowed for graceful termination before kill.
+        """
+        workers = self.snapshot()
+        for worker in workers:
             process = worker.process
             if process.poll() is not None:
                 continue
@@ -125,6 +135,24 @@ class ActiveProcessRegistry:
                     os.killpg(process.pid, signal.SIGTERM)
                 else:
                     process.terminate()
+            except ProcessLookupError:
+                continue
+
+        deadline = monotonic() + max(0.0, grace_seconds)
+        while monotonic() < deadline:
+            if all(worker.process.poll() is not None for worker in workers):
+                return
+            sleep(0.05)
+
+        for worker in workers:
+            process = worker.process
+            if process.poll() is not None:
+                continue
+            try:
+                if os.name == "posix":
+                    os.killpg(process.pid, signal.SIGKILL)
+                else:
+                    process.kill()
             except ProcessLookupError:
                 continue
 
@@ -583,6 +611,7 @@ def execute_batch(
     context: RunContext,
     telemetry_interval_seconds: float = DEFAULT_SAMPLING_INTERVAL_SECONDS,
     held_out_test_authorized: bool = False,
+    memory_safety_policy: MemorySafetyPolicy | None = None,
     preflight_runner: Callable[[str], PreflightResult] = run_preflight,
     output_stream: Any = sys.stdout,
 ) -> list[WorkerOutcome]:
@@ -596,6 +625,7 @@ def execute_batch(
         context: Run filesystem context.
         telemetry_interval_seconds: Persistent monitoring interval.
         held_out_test_authorized: Explicit held-out authorization.
+        memory_safety_policy: Optional pre-launch and runtime memory gates.
         preflight_runner: Existing preflight logic, injectable for tests.
         output_stream: Non-TTY-safe progress stream.
 
@@ -610,7 +640,9 @@ def execute_batch(
     if phase == "test" and not held_out_test_authorized:
         raise RuntimeError("Batch held-out test requires explicit authorization.")
 
+    memory_safety_policy = memory_safety_policy or MemorySafetyPolicy()
     resources = discover_resources()
+    validate_prelaunch_memory(memory_safety_policy, resources)
     effective_workers = min(workers, len(models))
     model_records = {
         model_id: preflight_model_record(
@@ -673,6 +705,23 @@ def execute_batch(
             thread_environment=THREAD_CONTROL_ENVIRONMENT,
             model_records=model_records,
         )
+    memory_safety = manifest.payload.setdefault("memory_safety", {})
+    memory_safety.update(
+        {
+            "minimum_launch_available_bytes": (
+                memory_safety_policy.minimum_launch_available_bytes
+            ),
+            "emergency_available_bytes": (
+                memory_safety_policy.emergency_available_bytes
+            ),
+            "emergency_consecutive_samples": (
+                memory_safety_policy.emergency_consecutive_samples
+            ),
+            "prelaunch_snapshot": resources,
+        }
+    )
+    memory_safety.setdefault("events", [])
+    manifest.write()
     registry = ActiveProcessRegistry()
     events: queue.Queue[dict[str, Any]] = queue.Queue()
     stop_event = threading.Event()
@@ -680,6 +729,8 @@ def execute_batch(
     started_at = monotonic()
     samplers: dict[tuple[str, int], ProcessTreeSampler] = {}
     last_sample = 0.0
+    memory_guard = MemoryPressureGuard(memory_safety_policy)
+    memory_emergency_triggered = False
 
     expected_checkpoints: dict[str, ArtifactCheckpoint] = {}
     expected_stage_checkpoints: dict[str, dict[str, ArtifactCheckpoint]] = {}
@@ -718,7 +769,7 @@ def execute_batch(
         _active_futures: dict[str, Future[WorkerOutcome]],
         completed: list[WorkerOutcome],
     ) -> None:
-        nonlocal last_sample
+        nonlocal last_sample, memory_emergency_triggered
         _drain_events(events, manifest)
         elapsed = monotonic() - started_at
         if elapsed - last_sample < telemetry_interval_seconds:
@@ -760,6 +811,25 @@ def execute_batch(
             failed=failed,
             active_rows=rows,
         )
+        current_memory = memory_snapshot()
+        available = int(current_memory["effective_memory_available_bytes"] or 0)
+        if not memory_emergency_triggered and memory_guard.observe(available):
+            memory_emergency_triggered = True
+            stop_event.set()
+            event = {
+                "timestamp_utc": utc_timestamp(),
+                "event": "persistent_low_available_memory",
+                "effective_memory_available_bytes": available,
+                "emergency_available_bytes": (
+                    memory_safety_policy.emergency_available_bytes
+                ),
+                "consecutive_samples": memory_guard.consecutive_low_samples,
+                "action": "stop_scheduling_and_terminate_owned_workers",
+            }
+            manifest.payload["memory_safety"]["events"].append(event)
+            manifest.payload["batch_status"] = "memory_safety_stopping"
+            manifest.write()
+            registry.terminate_all()
 
     previous_handler = None
     if threading.current_thread() is threading.main_thread():
@@ -826,12 +896,16 @@ def execute_batch(
 
     # Cohort-level aggregation belongs here only after every worker stopped.
     manifest.payload["batch_status"] = (
-        "interrupted"
-        if stop_event.is_set()
+        "memory_safety_stopped"
+        if memory_emergency_triggered
         else (
-            "completed"
-            if all(outcome.status == "completed" for outcome in outcomes)
-            else "completed_with_failures"
+            "interrupted"
+            if stop_event.is_set()
+            else (
+                "completed"
+                if all(outcome.status == "completed" for outcome in outcomes)
+                else "completed_with_failures"
+            )
         )
     )
     manifest.write()
@@ -874,6 +948,24 @@ def parse_arguments(arguments: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_SAMPLING_INTERVAL_SECONDS,
     )
     parser.add_argument("--authorize-held-out-test", action="store_true")
+    parser.add_argument(
+        "--min-available-memory-gib",
+        type=float,
+        default=0.0,
+        help="Block launch below this effective available-memory floor.",
+    )
+    parser.add_argument(
+        "--emergency-available-memory-gib",
+        type=float,
+        default=0.0,
+        help="Gracefully stop after persistent runtime memory pressure.",
+    )
+    parser.add_argument(
+        "--memory-emergency-samples",
+        type=int,
+        default=2,
+        help="Consecutive low-memory samples required before stopping.",
+    )
     return parser.parse_args(arguments)
 
 
@@ -899,6 +991,15 @@ def main() -> None:
         context=context,
         telemetry_interval_seconds=arguments.telemetry_interval,
         held_out_test_authorized=arguments.authorize_held_out_test,
+        memory_safety_policy=MemorySafetyPolicy(
+            minimum_launch_available_bytes=int(
+                arguments.min_available_memory_gib * BYTES_PER_GIBIBYTE
+            ),
+            emergency_available_bytes=int(
+                arguments.emergency_available_memory_gib * BYTES_PER_GIBIBYTE
+            ),
+            emergency_consecutive_samples=arguments.memory_emergency_samples,
+        ),
     )
     if len(outcomes) != len(model_ids) or any(
         outcome.status != "completed" for outcome in outcomes
