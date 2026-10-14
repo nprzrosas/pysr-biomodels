@@ -83,6 +83,45 @@ class ProcessTreeTelemetryTests(unittest.TestCase):
         self.assertEqual(row["model_id"], "MODEL")
         self.assertEqual(row["stage"], "candidates")
 
+    def test_recursive_child_cpu_is_measured_after_priming(self) -> None:
+        child_code = """import time
+end = time.monotonic() + 2
+while time.monotonic() < end:
+    pass
+"""
+        parent_code = (
+            "import subprocess,sys,time; "
+            f"p=subprocess.Popen([sys.executable,'-c',{child_code!r}]); "
+            "print(p.pid,flush=True); time.sleep(3)"
+        )
+        process = subprocess.Popen(
+            [sys.executable, "-c", parent_code],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+        self.addCleanup(self._terminate, process)
+        assert process.stdout is not None
+        process.stdout.readline()
+        sampler = ProcessTreeSampler(
+            parent_pid=process.pid,
+            effective_cpu_capacity=1.0,
+        )
+        sampler.prime()
+        time.sleep(0.2)
+        row = sampler.sample(
+            context=WorkerTelemetryContext(
+                run_id="run",
+                worker_id="1",
+                model_id="MODEL",
+                stage="candidates",
+                worker_state="running",
+            ),
+            elapsed_seconds=0.2,
+        )
+        self.assertGreater(row["process_tree_cpu_percent_raw"], 0.0)
+
     def test_telemetry_csv_has_model_worker_and_stage(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             path = Path(temporary_directory) / "telemetry.csv"

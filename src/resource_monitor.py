@@ -236,7 +236,8 @@ class ProcessTreeSampler:
             try:
                 key = (process.pid, process.create_time())
                 if key in self._known_processes:
-                    raw_cpu_percent += process.cpu_percent(interval=None)
+                    known_process = self._known_processes[key]
+                    raw_cpu_percent += known_process.cpu_percent(interval=None)
                 else:
                     process.cpu_percent(interval=None)
                     self._known_processes[key] = process

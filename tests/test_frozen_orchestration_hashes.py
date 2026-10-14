@@ -10,6 +10,9 @@ EXACT_CONTENT_HASH = "3289165db06136f6b7cecc412c0918d802de591aa626990ef9f96918b5
 SAVGOL_0079_CONTENT_HASH = (
     "be4377c2ea16f6524f09bb1c5b99358fbdd23861db15c43ce452afeb627ba8d1"
 )
+SAVGOL_0156_PRETEST_CONTENT_HASH = (
+    "aec678ad77056266937febee198efed0a362855c6fcb759b85a0ac72b51f8757"
+)
 
 
 def sha256sum_inventory(paths: list[Path]) -> str:
@@ -40,9 +43,13 @@ class FrozenOrchestrationHashTests(unittest.TestCase):
         self.assertEqual(len(paths), 118)
         self.assertEqual(sha256sum_inventory(paths), SAVGOL_0079_CONTENT_HASH)
 
-    def test_savgol_0156_has_not_been_created(self) -> None:
-        self.assertFalse(
-            (RESULTS_ROOT / "BIOMD0000000156" / "generic_savgol_experiment").exists()
+    def test_savgol_0156_pretest_namespace_remains_frozen(self) -> None:
+        root = RESULTS_ROOT / "BIOMD0000000156" / "generic_savgol_experiment"
+        paths = [path for path in root.rglob("*") if path.is_file()]
+        self.assertEqual(len(paths), 101)
+        self.assertEqual(
+            sha256sum_inventory(paths),
+            SAVGOL_0156_PRETEST_CONTENT_HASH,
         )
 
 

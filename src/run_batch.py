@@ -795,6 +795,13 @@ def execute_batch(
                 model_status = "pretest_complete"
             else:
                 model_status = "pending"
+        manifest.update_stage(
+            model_id=outcome.model_id,
+            stage=phase,
+            status=outcome.status,
+            worker_id=outcome.worker_id,
+            exit_code=outcome.exit_code,
+        )
         updates: dict[str, Any] = {
             "status": model_status,
             "exit_code": outcome.exit_code,

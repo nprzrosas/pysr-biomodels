@@ -350,6 +350,92 @@ class BatchIsolationTests(unittest.TestCase):
             )
         worker_factory.assert_not_called()
 
+    def test_successful_resume_marks_requested_phase_complete(self) -> None:
+        sbml_path = Path(self.temporary_directory.name) / "model.xml"
+        sbml_path.write_text("<sbml/>\n", encoding="utf-8")
+        context = RunContext(
+            run_id="stage-resume-test",
+            project_root=Path(__file__).resolve().parents[1],
+            results_root=self.context.results_root,
+            runs_root=self.context.runs_root,
+            cache_root=self.context.cache_root,
+        )
+
+        def preflight(model_id: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                model_id=model_id,
+                spec=SimpleNamespace(
+                    model_id=model_id,
+                    model_path=sbml_path,
+                    state_ids=("A", "B", "C"),
+                    n_states=3,
+                ),
+                compatibility=SimpleNamespace(compatible=True, reasons=()),
+                simulation_time=5.0,
+            )
+
+        def failed_worker(model_id: str, worker_id: str) -> WorkerOutcome:
+            return WorkerOutcome(
+                model_id,
+                worker_id,
+                "failed",
+                1,
+                failure="synthetic failure",
+            )
+
+        checkpoint = {
+            "file_count": 1,
+            "path_hash": "path",
+            "content_hash": "content",
+        }
+
+        def successful_worker(model_id: str, worker_id: str) -> WorkerOutcome:
+            return WorkerOutcome(
+                model_id,
+                worker_id,
+                "completed",
+                0,
+                result={
+                    "stage_checkpoints": {},
+                    "pretest_checkpoint": checkpoint,
+                    "selection_identity": {},
+                },
+            )
+
+        with patch(
+            "src.run_batch.SubprocessModelWorker",
+            return_value=failed_worker,
+        ):
+            execute_batch(
+                model_ids=("MODEL",),
+                variant=SAVGOL_BENCHMARK_VARIANT,
+                workers=1,
+                phase="pretest",
+                context=context,
+                preflight_runner=preflight,
+                output_stream=io.StringIO(),
+            )
+
+        with patch(
+            "src.run_batch.SubprocessModelWorker",
+            return_value=successful_worker,
+        ):
+            execute_batch(
+                model_ids=("MODEL",),
+                variant=SAVGOL_BENCHMARK_VARIANT,
+                workers=1,
+                phase="pretest",
+                context=context,
+                preflight_runner=preflight,
+                output_stream=io.StringIO(),
+            )
+
+        payload = json.loads(context.manifest_path.read_text(encoding="utf-8"))
+        record = payload["models"]["MODEL"]
+        self.assertEqual(record["status"], "pretest_complete")
+        self.assertEqual(record["stages"]["pretest"]["status"], "completed")
+        self.assertEqual(record["stages"]["pretest"]["exit_code"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
