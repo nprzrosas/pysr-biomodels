@@ -1,9 +1,18 @@
-"""Run coupled-system validation for one generic exact-derivative experiment."""
+"""Run coupled-system validation for one generic benchmark variant."""
 
 import argparse
 
+from .benchmark_variant import (
+    EXACT_BENCHMARK_VARIANT,
+    BenchmarkVariant,
+    get_benchmark_variant,
+)
 from .evaluate_generic_validation import (
+    TRAINING_DATASETS,
     evaluate_validation_dataset,
+    resolve_validation_experiment_root,
+    validate_candidate_pool_provenance,
+    validate_selection_development_dataset,
 )
 from .experimental_design_generic import (
     build_experimental_design,
@@ -14,9 +23,6 @@ from .model_compatibility import (
 from .preflight import (
     run_preflight,
 )
-from .run_pysr_generic import (
-    TRAINING_DATASETS,
-)
 from .simulate_generic import (
     build_generic_development_dataset,
 )
@@ -25,8 +31,14 @@ from .simulate_generic import (
 def run_validation(
     *,
     model_id: str,
+    variant: BenchmarkVariant = EXACT_BENCHMARK_VARIANT,
 ) -> None:
-    """Validate all PySR candidate systems without materializing test data."""
+    """Validate all PySR candidate systems without materializing test data.
+
+    Args:
+        model_id: BioModels identifier to validate.
+        variant: Candidate derivative method and protected result namespace.
+    """
     result = run_preflight(
         model_id=model_id,
     )
@@ -44,18 +56,30 @@ def run_validation(
         spec=result.spec,
     )
 
+    experiment_root = resolve_validation_experiment_root(
+        model_id=result.model_id,
+        variant=variant,
+    )
+
+    validate_candidate_pool_provenance(
+        experiment_root=experiment_root,
+        variant=variant,
+        dataset_names=TRAINING_DATASETS,
+    )
+
     dataset = build_generic_development_dataset(
         spec=result.spec,
         design=design,
         duration=result.simulation_time,
         points=101,
+        variant=variant,
     )
 
-    if not dataset.test.empty:
-        raise ValueError(
-            "Held-out test data must remain unmaterialized "
-            "during validation."
-        )
+    validate_selection_development_dataset(
+        dataset=dataset,
+        spec=result.spec,
+        variant=variant,
+    )
 
     print()
     print("=" * 70)
@@ -96,6 +120,7 @@ def run_validation(
                 spec=result.spec,
                 dataset_name=dataset_name,
                 validation_frame=dataset.validation,
+                variant=variant,
             )
         )
 
@@ -181,12 +206,39 @@ def run_validation(
     )
 
 
-def parse_arguments():
-    """Parse command-line arguments."""
+def parse_benchmark_variant(value: str) -> BenchmarkVariant:
+    """Resolve one CLI derivative-method value to a benchmark variant.
+
+    Args:
+        value: Derivative-method CLI value.
+
+    Returns:
+        Registered immutable benchmark variant.
+
+    Raises:
+        argparse.ArgumentTypeError: If the derivative method is unknown.
+    """
+    try:
+        return get_benchmark_variant(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
+def parse_arguments(
+    arguments: list[str] | None = None,
+) -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Args:
+        arguments: Optional argument list for tests; defaults to ``sys.argv``.
+
+    Returns:
+        Parsed model identifier and validated benchmark variant.
+    """
     parser = argparse.ArgumentParser(
         description=(
             "Run coupled-system validation for one "
-            "generic exact-derivative experiment."
+            "generic benchmark variant."
         )
     )
 
@@ -198,7 +250,18 @@ def parse_arguments():
         ),
     )
 
-    return parser.parse_args()
+    parser.add_argument(
+        "--derivative-method",
+        default=EXACT_BENCHMARK_VARIANT,
+        type=parse_benchmark_variant,
+        metavar="{exact,savgol}",
+        help=(
+            "Derivative-target method. Defaults to exact; "
+            "savgol selects the frozen Savitzky-Golay v1 variant."
+        ),
+    )
+
+    return parser.parse_args(arguments)
 
 
 def main() -> None:
@@ -207,6 +270,7 @@ def main() -> None:
 
     run_validation(
         model_id=arguments.model_id,
+        variant=arguments.derivative_method,
     )
 
 

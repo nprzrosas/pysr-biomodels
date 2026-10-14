@@ -8,12 +8,16 @@ import pandas as pd
 import sympy as sp
 from scipy.integrate import solve_ivp
 
+from .benchmark_variant import (
+    EXACT_BENCHMARK_VARIANT,
+    BenchmarkVariant,
+    DerivativeMethod,
+    validate_derivative_provenance,
+)
 from .model_spec import ModelSpec
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
-EXPERIMENT_NAME = "generic_exact_experiment"
 
 TRAINING_DATASETS = (
     "train_04",
@@ -26,6 +30,178 @@ SOLVER_METHOD = "LSODA"
 RTOL = 1e-7
 ATOL = 1e-9
 MAX_RHS_EVALUATIONS = 8000
+
+
+def resolve_validation_experiment_root(
+    *,
+    model_id: str,
+    variant: BenchmarkVariant = EXACT_BENCHMARK_VARIANT,
+    project_root: Path | None = None,
+) -> Path:
+    """Resolve the candidate and validation root for one benchmark variant.
+
+    Args:
+        model_id: BioModels identifier used as the model directory.
+        variant: Validated derivative method and protected namespace.
+        project_root: Optional project root override for tests.
+
+    Returns:
+        Variant-specific model experiment directory.
+    """
+    if not isinstance(variant, BenchmarkVariant):
+        raise TypeError("variant must be a validated BenchmarkVariant.")
+
+    root = PROJECT_ROOT if project_root is None else Path(project_root)
+
+    return root / "results" / model_id / variant.experiment_namespace
+
+
+def _read_single_metadata_row(path: Path) -> dict[str, object]:
+    """Read one required provenance metadata row.
+
+    Args:
+        path: CSV metadata path.
+
+    Returns:
+        The sole metadata row as a dictionary.
+    """
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Missing derivative provenance metadata: {path}"
+        )
+
+    metadata = pd.read_csv(path)
+
+    if len(metadata) != 1:
+        raise ValueError(f"Expected exactly one metadata row in {path}.")
+
+    return metadata.iloc[0].to_dict()
+
+
+def _validate_candidate_metadata_row(
+    *,
+    metadata: dict[str, object],
+    metadata_path: Path,
+    experiment_root: Path,
+    variant: BenchmarkVariant,
+) -> None:
+    """Validate candidate metadata against its path and benchmark variant.
+
+    Frozen exact artifacts predate the ``experiment_namespace`` metadata
+    column. For those artifacts only, the already-protected directory name is
+    used as namespace provenance. New variants must record the field.
+
+    Args:
+        metadata: One experiment- or training-level metadata row.
+        metadata_path: Source path used in validation errors.
+        experiment_root: Resolved variant experiment root.
+        variant: Requested benchmark variant.
+    """
+    provenance = {
+        key: metadata[key]
+        for key in (
+            "derivative_method",
+            "experiment_namespace",
+        )
+        if key in metadata and not pd.isna(metadata[key])
+    }
+
+    if (
+        "experiment_namespace" not in provenance
+        and variant.derivative_method is DerivativeMethod.EXACT
+    ):
+        provenance["experiment_namespace"] = experiment_root.name
+
+    try:
+        validate_derivative_provenance(
+            provenance=provenance,
+            variant=variant,
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            f"Candidate provenance mismatch in {metadata_path}: {error}"
+        ) from error
+
+
+def validate_candidate_pool_provenance(
+    *,
+    experiment_root: Path,
+    variant: BenchmarkVariant,
+    dataset_names: tuple[str, ...] = TRAINING_DATASETS,
+) -> None:
+    """Validate all candidate metadata before selection can write outputs.
+
+    Args:
+        experiment_root: Resolved model experiment directory.
+        variant: Requested benchmark variant.
+        dataset_names: Training conditions whose metadata must agree.
+    """
+    if not isinstance(variant, BenchmarkVariant):
+        raise TypeError("variant must be a validated BenchmarkVariant.")
+
+    experiment_root = Path(experiment_root)
+
+    validate_derivative_provenance(
+        provenance={
+            "derivative_method": variant.derivative_method.value,
+            "experiment_namespace": experiment_root.name,
+        },
+        variant=variant,
+    )
+
+    metadata_paths = [
+        experiment_root / "experiment_metadata.csv",
+        *(
+            experiment_root / dataset_name / "run_metadata.csv"
+            for dataset_name in dataset_names
+        ),
+    ]
+
+    for metadata_path in metadata_paths:
+        metadata = _read_single_metadata_row(metadata_path)
+        _validate_candidate_metadata_row(
+            metadata=metadata,
+            metadata_path=metadata_path,
+            experiment_root=experiment_root,
+            variant=variant,
+        )
+
+
+def validate_selection_development_dataset(
+    *,
+    dataset,
+    spec: ModelSpec,
+    variant: BenchmarkVariant,
+) -> None:
+    """Validate derivative lineage and the selection information boundary.
+
+    Args:
+        dataset: In-memory generic development dataset.
+        spec: Ordered dynamic-state metadata.
+        variant: Requested benchmark variant.
+    """
+    validate_derivative_provenance(
+        provenance=dataset.derivative_provenance,
+        variant=variant,
+    )
+
+    if not dataset.test.empty:
+        raise ValueError(
+            "Held-out test data must remain unmaterialized during validation."
+        )
+
+    if variant.derivative_method is DerivativeMethod.SAVGOL:
+        expected_columns = (
+            "trajectory_id",
+            "time",
+            *spec.state_ids,
+        )
+
+        if tuple(dataset.validation.columns) != expected_columns:
+            raise ValueError(
+                "Savitzky-Golay validation must contain only trajectory_id, "
+                "time, and ordered state columns."
+            )
 
 
 def compile_rhs_system(
@@ -892,13 +1068,24 @@ def evaluate_validation_dataset(
     spec: ModelSpec,
     dataset_name,
     validation_frame,
+    variant: BenchmarkVariant = EXACT_BENCHMARK_VARIANT,
+    project_root: Path | None = None,
 ):
     """Evaluate all candidate systems for one training-size experiment."""
+    experiment_root = resolve_validation_experiment_root(
+        model_id=spec.model_id,
+        variant=variant,
+        project_root=project_root,
+    )
+
+    validate_candidate_pool_provenance(
+        experiment_root=experiment_root,
+        variant=variant,
+        dataset_names=(dataset_name,),
+    )
+
     experiment_dir = (
-        PROJECT_ROOT
-        / "results"
-        / spec.model_id
-        / EXPERIMENT_NAME
+        experiment_root
         / dataset_name
     )
 

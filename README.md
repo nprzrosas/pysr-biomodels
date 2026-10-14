@@ -392,6 +392,25 @@ results/<model_id>/generic_exact_experiment/
 
 ## Reproducibility and Script Roles
 
+Run scientific command modules from the repository root with Python's package
+entry-point syntax. Direct file execution such as
+`python src/run_generic_validation.py` is not supported because these modules
+use package-relative imports.
+
+Validation is available for both benchmark variants:
+
+```bash
+uv run python -m src.run_generic_validation BIOMD0000000079 --derivative-method exact
+uv run python -m src.run_generic_validation BIOMD0000000079 --derivative-method savgol
+```
+
+Selector v1 is likewise available for both variants:
+
+```bash
+uv run python -m src.select_generic_system BIOMD0000000079 --derivative-method exact
+uv run python -m src.select_generic_system BIOMD0000000079 --derivative-method savgol
+```
+
 | Role | Scripts | Effect |
 |---|---|---|
 | Scientific computation | `src/run_generic_benchmark.py`, `src/run_pysr_generic.py`, `src/simulate_generic.py`, `src/experimental_design_generic.py` | Generate trajectories and derivatives and fit PySR equations. |

@@ -6,20 +6,24 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from src.benchmark_variant import (
+    EXACT_BENCHMARK_VARIANT,
+    BenchmarkVariant,
+    get_benchmark_variant,
+)
 from src.evaluate_generic_validation import (
     evaluate_system,
     load_state_candidates,
     load_state_scales,
+    resolve_validation_experiment_root,
     summarize_system,
+    validate_candidate_pool_provenance,
+    validate_selection_development_dataset,
 )
 from src.experimental_design_generic import build_experimental_design
 from src.preflight import run_preflight
 from src.simulate_generic import build_generic_development_dataset
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
-EXPERIMENT_NAME = "generic_exact_experiment"
 
 TRAINING_DATASETS = (
     "train_04",
@@ -520,8 +524,35 @@ def write_selection_results(
     )
 
 
-def parse_arguments():
-    """Parse command-line arguments."""
+def parse_benchmark_variant(value: str) -> BenchmarkVariant:
+    """Resolve one CLI derivative-method value to a benchmark variant.
+
+    Args:
+        value: Derivative-method CLI value.
+
+    Returns:
+        Registered immutable benchmark variant.
+
+    Raises:
+        argparse.ArgumentTypeError: If the derivative method is unknown.
+    """
+    try:
+        return get_benchmark_variant(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
+def parse_arguments(
+    arguments: list[str] | None = None,
+) -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Args:
+        arguments: Optional argument list for tests; defaults to ``sys.argv``.
+
+    Returns:
+        Parsed model identifier and validated benchmark variant.
+    """
     parser = argparse.ArgumentParser(
         description=(
             "Select coupled PySR equations using deterministic "
@@ -534,20 +565,38 @@ def parse_arguments():
         help="BioModels identifier.",
     )
 
-    return parser.parse_args()
+    parser.add_argument(
+        "--derivative-method",
+        default=EXACT_BENCHMARK_VARIANT,
+        type=parse_benchmark_variant,
+        metavar="{exact,savgol}",
+        help=(
+            "Derivative-target method. Defaults to exact; "
+            "savgol selects the frozen Savitzky-Golay v1 variant."
+        ),
+    )
+
+    return parser.parse_args(arguments)
 
 
-def main():
-    """Run coordinate-search validation selection for one BioModels model."""
-    args = parse_arguments()
+def run_selection(
+    *,
+    model_id: str,
+    variant: BenchmarkVariant = EXACT_BENCHMARK_VARIANT,
+) -> None:
+    """Run coordinate-search validation selection for one benchmark variant.
 
+    Args:
+        model_id: BioModels identifier to select.
+        variant: Candidate derivative method and protected result namespace.
+    """
     preflight = run_preflight(
-        args.model_id
+        model_id
     )
 
     if not preflight.compatibility.compatible:
         raise RuntimeError(
-            f"Model {args.model_id} is not compatible: "
+            f"Model {model_id} is not compatible: "
             f"{preflight.compatibility.reasons}"
         )
 
@@ -557,16 +606,29 @@ def main():
         spec=spec,
     )
 
+    model_results_root = resolve_validation_experiment_root(
+        model_id=spec.model_id,
+        variant=variant,
+    )
+
+    validate_candidate_pool_provenance(
+        experiment_root=model_results_root,
+        variant=variant,
+        dataset_names=TRAINING_DATASETS,
+    )
+
     dataset = build_generic_development_dataset(
         spec=spec,
         design=design,
         duration=preflight.simulation_time,
+        variant=variant,
     )
 
-    if not dataset.test.empty:
-        raise RuntimeError(
-            "Development dataset unexpectedly contains held-out test data."
-        )
+    validate_selection_development_dataset(
+        dataset=dataset,
+        spec=spec,
+        variant=variant,
+    )
 
     print("=" * 100)
     print("GENERIC COORDINATE SYSTEM SELECTION")
@@ -590,13 +652,6 @@ def main():
         len(
             dataset.test
         ),
-    )
-
-    model_results_root = (
-        PROJECT_ROOT
-        / "results"
-        / spec.model_id
-        / EXPERIMENT_NAME
     )
 
     for dataset_name in TRAINING_DATASETS:
@@ -700,6 +755,16 @@ def main():
                     f"equation_{state_id}"
                 ],
             )
+
+
+def main() -> None:
+    """Run coordinate-search validation selection for one BioModels model."""
+    arguments = parse_arguments()
+
+    run_selection(
+        model_id=arguments.model_id,
+        variant=arguments.derivative_method,
+    )
 
 
 if __name__ == "__main__":
