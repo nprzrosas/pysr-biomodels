@@ -438,7 +438,7 @@ class SubprocessModelWorker:
                     {
                         "model_id": model_id,
                         "worker_id": worker_id,
-                        "stage": "starting",
+                        "stage": self.phase,
                         "status": "running",
                         "pid": process.pid,
                     }
@@ -560,6 +560,8 @@ def _drain_events(event_queue: queue.Queue[dict[str, Any]], manifest: Any) -> No
                 **details,
             )
             if event["status"] == "running":
+                model = manifest.payload["models"][str(event["model_id"])]
+                model.setdefault("started_at_utc", utc_timestamp())
                 manifest.update_model(str(event["model_id"]), status="running")
             checkpoint = event.get("artifact_checkpoint")
             if isinstance(checkpoint, dict):
@@ -751,8 +753,9 @@ def execute_batch(
             telemetry.write(row)
             rows.append(row)
         failed = sum(outcome.status == "failed" for outcome in completed)
+        completed_count = sum(outcome.status == "completed" for outcome in completed)
         reporter.report(
-            completed=len(completed),
+            completed=completed_count,
             total=len(models),
             failed=failed,
             active_rows=rows,
@@ -795,6 +798,7 @@ def execute_batch(
         updates: dict[str, Any] = {
             "status": model_status,
             "exit_code": outcome.exit_code,
+            "ended_at_utc": utc_timestamp(),
         }
         if outcome.failure:
             updates["failures"] = [outcome.failure]
@@ -824,6 +828,14 @@ def execute_batch(
         )
     )
     manifest.write()
+    completed_count = sum(outcome.status == "completed" for outcome in outcomes)
+    failed_count = sum(outcome.status == "failed" for outcome in outcomes)
+    reporter.report(
+        completed=completed_count,
+        total=len(models),
+        failed=failed_count,
+        active_rows=[],
+    )
     return outcomes
 
 

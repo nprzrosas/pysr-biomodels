@@ -562,21 +562,25 @@ def run_model(
 
     checkpoint = None
     identities = None
-    if artifact_state(selector_paths) == "complete":
-        identities = selection_identity(root=root, state_ids=state_ids)
-    if (
-        artifact_state(candidate_paths) == "complete"
-        and artifact_state(selector_paths) == "complete"
-        and (not exhaustive_permitted or artifact_state(exhaustive_paths) == "complete")
-    ):
-        checkpoint = checkpoint_paths(
-            pretest_artifact_paths(
-                root=root,
-                state_ids=state_ids,
-                exhaustive_permitted=exhaustive_permitted,
-            ),
-            relative_to=root,
-        )
+    if phase in {"selector", "pretest", "test"}:
+        if artifact_state(selector_paths) == "complete":
+            identities = selection_identity(root=root, state_ids=state_ids)
+        if (
+            artifact_state(candidate_paths) == "complete"
+            and artifact_state(selector_paths) == "complete"
+            and (
+                not exhaustive_permitted
+                or artifact_state(exhaustive_paths) == "complete"
+            )
+        ):
+            checkpoint = checkpoint_paths(
+                pretest_artifact_paths(
+                    root=root,
+                    state_ids=state_ids,
+                    exhaustive_permitted=exhaustive_permitted,
+                ),
+                relative_to=root,
+            )
 
     return ModelRunResult(
         model_id=model_id,

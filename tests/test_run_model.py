@@ -123,6 +123,30 @@ class RunModelTests(unittest.TestCase):
         self.assertEqual(root.name, "generic_exact_experiment")
         self.assertEqual(result.experiment_namespace, "generic_exact_experiment")
 
+    def test_preflight_does_not_adopt_existing_downstream_artifacts(self) -> None:
+        state_ids = ("A", "B", "C")
+        root = experiment_root(
+            model_id=MODEL_ID,
+            variant=SAVGOL_BENCHMARK_VARIANT,
+            run_context=self.context,
+        )
+        create_candidates(root, state_ids, "savgol", "generic_savgol_experiment")
+        create_plain_artifacts(exhaustive_artifact_paths(root=root))
+        create_selector(root, state_ids)
+
+        result = run_model(
+            MODEL_ID,
+            SAVGOL_BENCHMARK_VARIANT,
+            "preflight",
+            self.context,
+            command_runner=self.fail,
+            preflight_runner=lambda _model_id: synthetic_preflight(state_ids),
+            event_callback=lambda _event: None,
+        )
+        self.assertIsNone(result.pretest_checkpoint)
+        self.assertIsNone(result.selection_identity)
+        self.assertEqual(result.stages, {"preflight": "completed"})
+
     def test_savgol_namespace_is_isolated(self) -> None:
         root = experiment_root(
             model_id=MODEL_ID,

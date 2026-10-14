@@ -45,6 +45,23 @@ class RunManifestTests(unittest.TestCase):
             self.assertEqual(len(errors), 1)
             self.assertIsInstance(errors[0], RuntimeError)
 
+    def test_stage_records_separate_start_and_end_timestamps(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            manifest = RunManifest(
+                path=Path(temporary_directory) / "manifest.json",
+                payload={"models": {"MODEL": {}}},
+            )
+            manifest.update_stage(
+                model_id="MODEL", stage="preflight", status="running", pid=123
+            )
+            manifest.update_stage(
+                model_id="MODEL", stage="preflight", status="completed"
+            )
+            record = manifest.payload["models"]["MODEL"]["stages"]["preflight"]
+            self.assertIn("started_at_utc", record)
+            self.assertIn("ended_at_utc", record)
+            self.assertEqual(record["pid"], 123)
+
     def test_checkpoint_changes_when_artifact_content_changes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

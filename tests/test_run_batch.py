@@ -268,6 +268,7 @@ class BatchIsolationTests(unittest.TestCase):
                 },
             )
 
+        output = io.StringIO()
         with patch(
             "src.run_batch.SubprocessModelWorker",
             return_value=synthetic_worker,
@@ -280,7 +281,7 @@ class BatchIsolationTests(unittest.TestCase):
                 context=context,
                 telemetry_interval_seconds=0.01,
                 preflight_runner=preflight,
-                output_stream=io.StringIO(),
+                output_stream=output,
             )
 
         payload = json.loads(context.manifest_path.read_text(encoding="utf-8"))
@@ -293,6 +294,7 @@ class BatchIsolationTests(unittest.TestCase):
         self.assertEqual(payload["models"]["MODEL_A"]["state_count"], 4)
         self.assertFalse(payload["models"]["MODEL_A"]["exhaustive_permitted"])
         self.assertTrue(context.telemetry_path.exists())
+        self.assertIn("completed=2/2", output.getvalue())
 
     def test_resume_rejects_changed_sbml_before_worker_creation(self) -> None:
         sbml_path = Path(self.temporary_directory.name) / "model.xml"
