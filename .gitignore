@@ -34,3 +34,32 @@ htmlcov/
 src/*_frozen.py
 src/reporting/*_frozen.py
 src/reporting/*_before_*_fix.py
+
+# Release archives (publish final artifacts with GitHub Releases)
+*.tar
+*.tar.gz
+
+# Generated deployment runtime data and validation outputs
+deployment/docker_cache/
+deployment/docker_results/
+deployment/docker_runs/
+deployment/test_cache/
+deployment/test_results/
+deployment/test_runs/
+deployment/validation_evidence/
+
+# Superseded or temporary deployment staging directories
+deployment/final_package_test/
+deployment/package/
+deployment/v2_package/
+deployment/config/
+
+# BioModels inputs are bundled in the release archive, not Git history
+deployment/v3_package/inputs/
+
+# Keep only the checksum for the current final release archive
+deployment/*.tar.sha256
+!deployment/pysr-biomodels-ubuntu24-amd64.tar.sha256
+
+# Historical transfer bundles and machine-specific provenance
+phase8a_transfer/
