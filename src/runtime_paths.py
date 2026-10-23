@@ -14,6 +14,12 @@ NATIVE_MODEL_ROOT = (
 NATIVE_SIMULATION_METADATA_PATH = (
     PROJECT_ROOT.parent / "data2sbml" / "output" / "time_curated_images.csv"
 )
+NATIVE_MODEL_TIME_METADATA_PATH = (
+    PROJECT_ROOT.parent
+    / "data2sbml"
+    / "output"
+    / "all_curated_biomodels_no_variable_parameters_model_time.jsonl"
+)
 NATIVE_RESULTS_ROOT = PROJECT_ROOT / "results"
 NATIVE_RUNS_ROOT = PROJECT_ROOT / "runs"
 NATIVE_CACHE_ROOT = PROJECT_ROOT / ".cache"
@@ -52,6 +58,14 @@ def simulation_metadata_path() -> Path:
     return configured_path(
         "PYSR_SIMULATION_METADATA_PATH",
         NATIVE_SIMULATION_METADATA_PATH,
+    )
+
+
+def model_time_metadata_path() -> Path:
+    """Return the configured model-aware simulation-time metadata path."""
+    return configured_path(
+        "PYSR_MODEL_TIME_METADATA_PATH",
+        NATIVE_MODEL_TIME_METADATA_PATH,
     )
 
 

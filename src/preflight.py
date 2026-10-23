@@ -57,6 +57,7 @@ def run_preflight(
         try:
             simulation_time = load_simulation_time(
                 model_id=model_id,
+                sbml_filename=model_path.name,
             )
         except ValueError:
             simulation_time = None

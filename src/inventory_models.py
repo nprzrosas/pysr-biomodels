@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .model_registry import DEFAULT_MODEL_ROOT
+from .model_registry import DEFAULT_MODEL_ROOT, resolve_model_path
 from .preflight import run_preflight
 
 
@@ -33,15 +33,17 @@ def discover_model_ids(
 
         model_id = model_dir.name
 
-        model_path = (
-            model_dir
-            / f"{model_id}_url.xml"
-        )
-
-        if model_path.is_file():
-            model_ids.append(
-                model_id
+        try:
+            resolve_model_path(
+                model_id=model_id,
+                model_root=model_root,
             )
+        except (FileNotFoundError, ValueError):
+            continue
+
+        model_ids.append(
+            model_id
+        )
 
     return model_ids
 
