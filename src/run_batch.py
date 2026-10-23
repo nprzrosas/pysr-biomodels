@@ -1021,18 +1021,43 @@ def execute_batch(
                 stage: ArtifactCheckpoint(**checkpoint)
                 for stage, checkpoint in raw_checkpoints.items()
             }
+
+    runnable_models = list(models)
+
     if phase == "test":
-        for model_id, record in model_records.items():
+        runnable_models = []
+        for model_id in models:
+            record = model_records[model_id]
             stored = record.get("pretest_checkpoint")
-            if stored is None:
-                raise RuntimeError(
-                    f"Manifest lacks a pre-test checkpoint for {model_id}."
-                )
-            if not isinstance(stored, dict):
-                raise TypeError(
-                    f"Manifest pre-test checkpoint for {model_id} must be an object."
-                )
-            expected_checkpoints[model_id] = ArtifactCheckpoint(**stored)
+
+            if (
+                record.get("status") == "pretest_complete"
+                and isinstance(stored, dict)
+            ):
+                expected_checkpoints[model_id] = ArtifactCheckpoint(**stored)
+                runnable_models.append(model_id)
+
+        if not runnable_models:
+            raise RuntimeError(
+                "Held-out test has no eligible models with a completed "
+                "pre-test checkpoint."
+            )
+
+        manifest.payload["held_out_test_eligibility"] = {
+            "original_model_count": len(models),
+            "eligible_model_count": len(runnable_models),
+            "excluded_model_count": len(models) - len(runnable_models),
+            "eligible_models": list(runnable_models),
+            "excluded_models": [
+                model_id
+                for model_id in models
+                if model_id not in runnable_models
+            ],
+        }
+
+    effective_workers = min(workers, len(runnable_models))
+    manifest.payload["effective_workers"] = effective_workers
+    manifest.write()
 
     worker = SubprocessModelWorker(
         context=context,
@@ -1146,7 +1171,7 @@ def execute_batch(
     try:
         with TelemetryWriter(context.telemetry_path) as telemetry:
             outcomes = schedule_models(
-                model_ids=models,
+                model_ids=runnable_models,
                 workers=effective_workers,
                 worker=worker,
                 stop_event=stop_event,
@@ -1218,7 +1243,7 @@ def execute_batch(
             if stop_event.is_set()
             else (
                 "orchestration_failed"
-                if len(outcomes) != len(models)
+                if len(outcomes) != len(runnable_models)
                 or any(outcome.global_invariant_failure for outcome in outcomes)
                 else (
                     "completed"
@@ -1233,7 +1258,7 @@ def execute_batch(
     failed_count = sum(outcome.status != "completed" for outcome in outcomes)
     reporter.report(
         completed=completed_count,
-        total=len(models),
+        total=len(runnable_models),
         failed=failed_count,
         active_rows=[],
     )

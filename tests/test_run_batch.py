@@ -948,6 +948,174 @@ class BatchIsolationTests(unittest.TestCase):
         self.assertEqual(record["stages"]["pretest"]["exit_code"], 0)
 
 
+    def test_held_out_test_runs_only_pretest_complete_models(self) -> None:
+        """Held-out test skips models that did not complete pre-test."""
+        root = Path(self.temporary_directory.name)
+        sbml_path = root / "held-out-subset-model.xml"
+        sbml_path.write_text("<sbml/>\n", encoding="utf-8")
+
+        context = RunContext(
+            run_id="held-out-subset-test",
+            project_root=Path(__file__).resolve().parents[1],
+            results_root=self.context.results_root,
+            runs_root=self.context.runs_root,
+            cache_root=self.context.cache_root,
+        )
+
+        def preflight(model_id: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                model_id=model_id,
+                spec=SimpleNamespace(
+                    model_id=model_id,
+                    model_path=sbml_path,
+                    state_ids=("A", "B", "C"),
+                    n_states=3,
+                ),
+                compatibility=SimpleNamespace(
+                    compatible=True,
+                    reasons=(),
+                ),
+                simulation_time=5.0,
+            )
+
+        checkpoint = {
+            "file_count": 1,
+            "path_hash": "pretest-path",
+            "content_hash": "pretest-content",
+        }
+
+        def pretest_worker(model_id: str, worker_id: str) -> WorkerOutcome:
+            if model_id == "MODEL_A":
+                return WorkerOutcome(
+                    model_id=model_id,
+                    worker_id=worker_id,
+                    status="completed",
+                    exit_code=0,
+                    result={
+                        "stage_checkpoints": {
+                            "selector": checkpoint,
+                        },
+                        "pretest_checkpoint": checkpoint,
+                        "selection_identity": {},
+                    },
+                )
+
+            if model_id == "MODEL_B":
+                return WorkerOutcome(
+                    model_id=model_id,
+                    worker_id=worker_id,
+                    status="resource_censored",
+                    exit_code=-15,
+                    failure="synthetic resource limit",
+                    failure_info=WorkerFailureInfo(
+                        failure_kind="timeout_exceeded",
+                        last_stage="candidates",
+                        peak_process_tree_rss_bytes=100,
+                        configured_process_tree_rss_limit_bytes=1000,
+                        consecutive_over_limit_samples=0,
+                        elapsed_worker_seconds=60.0,
+                        configured_timeout_seconds=60.0,
+                    ),
+                )
+
+            return WorkerOutcome(
+                model_id=model_id,
+                worker_id=worker_id,
+                status="failed",
+                exit_code=1,
+                failure="synthetic scientific failure",
+            )
+
+        with patch(
+            "src.run_batch.SubprocessModelWorker",
+            return_value=pretest_worker,
+        ):
+            pretest_outcomes = execute_batch(
+                model_ids=("MODEL_A", "MODEL_B", "MODEL_C"),
+                variant=EXACT_BENCHMARK_VARIANT,
+                workers=2,
+                phase="pretest",
+                context=context,
+                preflight_runner=preflight,
+                output_stream=io.StringIO(),
+            )
+
+        self.assertEqual(len(pretest_outcomes), 3)
+
+        payload = json.loads(context.manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["models"]["MODEL_A"]["status"], "pretest_complete")
+        self.assertEqual(payload["models"]["MODEL_B"]["status"], "resource_censored")
+        self.assertEqual(payload["models"]["MODEL_C"]["status"], "failed")
+        self.assertIn("pretest_checkpoint", payload["models"]["MODEL_A"])
+        self.assertNotIn("pretest_checkpoint", payload["models"]["MODEL_B"])
+        self.assertNotIn("pretest_checkpoint", payload["models"]["MODEL_C"])
+
+        test_models: list[str] = []
+
+        def test_worker(model_id: str, worker_id: str) -> WorkerOutcome:
+            test_models.append(model_id)
+            return WorkerOutcome(
+                model_id=model_id,
+                worker_id=worker_id,
+                status="completed",
+                exit_code=0,
+                result={
+                    "stage_checkpoints": {
+                        "test": {
+                            "file_count": 1,
+                            "path_hash": "test-path",
+                            "content_hash": "test-content",
+                        }
+                    },
+                    "pretest_checkpoint": checkpoint,
+                    "selection_identity": {},
+                },
+            )
+
+        with patch(
+            "src.run_batch.SubprocessModelWorker",
+            return_value=test_worker,
+        ):
+            test_outcomes = execute_batch(
+                model_ids=("MODEL_A", "MODEL_B", "MODEL_C"),
+                variant=EXACT_BENCHMARK_VARIANT,
+                workers=2,
+                phase="test",
+                context=context,
+                held_out_test_authorized=True,
+                preflight_runner=preflight,
+                output_stream=io.StringIO(),
+            )
+
+        self.assertEqual(test_models, ["MODEL_A"])
+        self.assertEqual(
+            [outcome.model_id for outcome in test_outcomes],
+            ["MODEL_A"],
+        )
+
+        payload = json.loads(context.manifest_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(set(payload["models"]), {"MODEL_A", "MODEL_B", "MODEL_C"})
+
+        self.assertEqual(payload["models"]["MODEL_A"]["status"], "test_complete")
+        self.assertEqual(payload["models"]["MODEL_B"]["status"], "resource_censored")
+        self.assertEqual(payload["models"]["MODEL_C"]["status"], "failed")
+
+        eligibility = payload["held_out_test_eligibility"]
+
+        self.assertEqual(eligibility["original_model_count"], 3)
+        self.assertEqual(eligibility["eligible_model_count"], 1)
+        self.assertEqual(eligibility["excluded_model_count"], 2)
+        self.assertEqual(eligibility["eligible_models"], ["MODEL_A"])
+        self.assertEqual(
+            eligibility["excluded_models"],
+            ["MODEL_B", "MODEL_C"],
+        )
+
+        self.assertEqual(payload["effective_workers"], 1)
+        self.assertEqual(payload["batch_status"], "completed")
+
+
 class BatchCliTests(unittest.TestCase):
     """Verify explicit resource units and model-failure exit semantics."""
 
