@@ -59,6 +59,22 @@ in `src/model_registry.py`, `src/model_spec.py`,
 `src/simulation_metadata.py`. Source SBML files and curated simulation horizons
 are expected in the sibling `../data2sbml/output/` tree.
 
+### Batch operational resource limits
+
+`python -m src.run_batch` keeps global low-memory protection separate from
+optional per-model limits. `--per-model-memory-gib` caps recursive worker RSS,
+`--per-model-memory-samples` controls persistence (default 2), and
+`--per-model-timeout-minutes` sets a launch-relative wall timeout. Zero disables
+the corresponding memory or timeout limit. Censored models are recorded in the
+run manifest while later models continue.
+
+The default `--model-failure-exit-policy error` preserves the historical
+nonzero exit when any model fails. Production automation may explicitly select
+`--model-failure-exit-policy success`; this returns zero only for a batch whose
+manifest status is `completed_with_failures`. Interrupted, orchestration-error,
+and global `memory_safety_stopped` runs remain nonzero. The run manifest is the
+authoritative outcome record in either mode.
+
 `src/run_generic_benchmark.py` generates only training and validation
 trajectories and runs PySR. Although the deterministic test initial conditions
 already exist in the experimental design, their trajectories are not

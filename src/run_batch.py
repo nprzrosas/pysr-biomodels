@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 import os
 import queue
 import signal
@@ -11,7 +12,7 @@ import threading
 import uuid
 from collections.abc import Callable, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from time import monotonic, sleep
 from typing import Any
@@ -56,6 +57,192 @@ EXHAUSTIVE_STATE_LIMIT = 3
 
 
 @dataclass(frozen=True)
+class PerModelResourcePolicy:
+    """Operational resource limits applied independently to each worker."""
+
+    maximum_process_tree_rss_bytes: int = 0
+    memory_consecutive_samples: int = 2
+    wall_clock_timeout_seconds: float = 0.0
+
+    def __post_init__(self) -> None:
+        """Validate disabled-or-positive limits and the persistence count."""
+        if (
+            not isinstance(self.maximum_process_tree_rss_bytes, int)
+            or isinstance(self.maximum_process_tree_rss_bytes, bool)
+            or self.maximum_process_tree_rss_bytes < 0
+        ):
+            raise ValueError("Per-model RSS limit must be a non-negative integer.")
+        if (
+            not isinstance(self.memory_consecutive_samples, int)
+            or isinstance(self.memory_consecutive_samples, bool)
+            or self.memory_consecutive_samples < 1
+        ):
+            raise ValueError(
+                "Per-model memory sample count must be a positive integer."
+            )
+        if (
+            not isinstance(self.wall_clock_timeout_seconds, (int, float))
+            or isinstance(self.wall_clock_timeout_seconds, bool)
+            or not math.isfinite(self.wall_clock_timeout_seconds)
+            or self.wall_clock_timeout_seconds < 0.0
+        ):
+            raise ValueError("Per-model timeout must be finite and non-negative.")
+
+
+@dataclass(frozen=True)
+class WorkerFailureInfo:
+    """Structured operational details for one worker failure."""
+
+    failure_kind: str
+    last_stage: str | None = None
+    peak_process_tree_rss_bytes: int | None = None
+    configured_process_tree_rss_limit_bytes: int | None = None
+    consecutive_over_limit_samples: int | None = None
+    elapsed_worker_seconds: float | None = None
+    configured_timeout_seconds: float | None = None
+
+
+@dataclass
+class _WorkerResourceState:
+    """Mutable sampling state isolated to one worker identifier."""
+
+    started_at_monotonic: float
+    peak_process_tree_rss_bytes: int = 0
+    consecutive_over_limit_samples: int = 0
+    failure_info: WorkerFailureInfo | None = None
+
+
+class PerModelResourceGuard:
+    """Evaluate per-model operational limits using coordinator telemetry."""
+
+    def __init__(self, policy: PerModelResourcePolicy) -> None:
+        """Initialize independent worker counters.
+
+        Args:
+            policy: Per-model operational limits.
+        """
+        self.policy = policy
+        self._lock = threading.Lock()
+        self._states: dict[str, _WorkerResourceState] = {}
+        self._finished_worker_ids: set[str] = set()
+
+    def register_worker(self, worker_id: str, started_at_monotonic: float) -> None:
+        """Record the actual launch time for a newly created subprocess.
+
+        Args:
+            worker_id: Batch-unique worker identifier.
+            started_at_monotonic: Monotonic timestamp captured after launch.
+        """
+        with self._lock:
+            self._finished_worker_ids.discard(worker_id)
+            self._states[worker_id] = _WorkerResourceState(
+                started_at_monotonic=started_at_monotonic
+            )
+
+    def observe(
+        self,
+        *,
+        worker_id: str,
+        stage: str,
+        process_tree_rss_bytes: int | None,
+        observed_at_monotonic: float,
+        started_at_monotonic: float,
+    ) -> WorkerFailureInfo | None:
+        """Evaluate one worker sample and return a newly triggered failure.
+
+        Args:
+            worker_id: Batch-unique worker identifier.
+            stage: Current operational stage label.
+            process_tree_rss_bytes: Recursive RSS measurement, when available.
+            observed_at_monotonic: Monotonic time of this telemetry tick.
+            started_at_monotonic: Actual worker launch time.
+
+        Returns:
+            Newly triggered resource failure, or ``None``.
+        """
+        with self._lock:
+            if worker_id in self._finished_worker_ids:
+                return None
+            state = self._states.setdefault(
+                worker_id,
+                _WorkerResourceState(started_at_monotonic=started_at_monotonic),
+            )
+            if state.failure_info is not None:
+                return None
+
+            if process_tree_rss_bytes is not None:
+                rss_bytes = max(0, int(process_tree_rss_bytes))
+                state.peak_process_tree_rss_bytes = max(
+                    state.peak_process_tree_rss_bytes,
+                    rss_bytes,
+                )
+                rss_limit = self.policy.maximum_process_tree_rss_bytes
+                if rss_limit > 0 and rss_bytes > rss_limit:
+                    state.consecutive_over_limit_samples += 1
+                else:
+                    state.consecutive_over_limit_samples = 0
+
+                if (
+                    rss_limit > 0
+                    and state.consecutive_over_limit_samples
+                    >= self.policy.memory_consecutive_samples
+                ):
+                    state.failure_info = WorkerFailureInfo(
+                        failure_kind="memory_limit_exceeded",
+                        last_stage=stage,
+                        peak_process_tree_rss_bytes=(state.peak_process_tree_rss_bytes),
+                        configured_process_tree_rss_limit_bytes=rss_limit,
+                        consecutive_over_limit_samples=(
+                            state.consecutive_over_limit_samples
+                        ),
+                        elapsed_worker_seconds=max(
+                            0.0,
+                            observed_at_monotonic - state.started_at_monotonic,
+                        ),
+                        configured_timeout_seconds=(
+                            self.policy.wall_clock_timeout_seconds
+                        ),
+                    )
+                    return state.failure_info
+
+            elapsed_seconds = max(
+                0.0,
+                observed_at_monotonic - state.started_at_monotonic,
+            )
+            timeout_seconds = self.policy.wall_clock_timeout_seconds
+            if timeout_seconds > 0.0 and elapsed_seconds >= timeout_seconds:
+                state.failure_info = WorkerFailureInfo(
+                    failure_kind="timeout_exceeded",
+                    last_stage=stage,
+                    peak_process_tree_rss_bytes=(state.peak_process_tree_rss_bytes),
+                    configured_process_tree_rss_limit_bytes=(
+                        self.policy.maximum_process_tree_rss_bytes
+                    ),
+                    consecutive_over_limit_samples=(
+                        state.consecutive_over_limit_samples
+                    ),
+                    elapsed_worker_seconds=elapsed_seconds,
+                    configured_timeout_seconds=timeout_seconds,
+                )
+                return state.failure_info
+            return None
+
+    def finish_worker(self, worker_id: str) -> WorkerFailureInfo | None:
+        """Remove one worker's counters and return any censoring record.
+
+        Args:
+            worker_id: Completed worker identifier.
+
+        Returns:
+            Recorded resource failure, if the worker was censored.
+        """
+        with self._lock:
+            state = self._states.pop(worker_id, None)
+            self._finished_worker_ids.add(worker_id)
+        return None if state is None else state.failure_info
+
+
+@dataclass(frozen=True)
 class WorkerOutcome:
     """Terminal outcome from one isolated model worker."""
 
@@ -66,6 +253,7 @@ class WorkerOutcome:
     result: dict[str, Any] | None = None
     failure: str | None = None
     global_invariant_failure: bool = False
+    failure_info: WorkerFailureInfo | None = None
 
 
 @dataclass(frozen=True)
@@ -77,6 +265,7 @@ class ActiveWorker:
     stage: str
     state: str
     process: subprocess.Popen[str]
+    started_at_monotonic: float = field(default_factory=monotonic)
 
 
 class ActiveProcessRegistry:
@@ -107,6 +296,7 @@ class ActiveProcessRegistry:
                     stage=stage,
                     state=state,
                     process=current.process,
+                    started_at_monotonic=current.started_at_monotonic,
                 )
 
     def remove(self, worker_id: str) -> None:
@@ -119,16 +309,45 @@ class ActiveProcessRegistry:
         with self._lock:
             return tuple(self._workers.values())
 
+    def terminate_worker(
+        self,
+        worker_id: str,
+        grace_seconds: float = 10.0,
+    ) -> None:
+        """Terminate only one owned worker process group.
+
+        Args:
+            worker_id: Registered worker identifier to terminate.
+            grace_seconds: Time allowed for graceful termination before kill.
+        """
+        with self._lock:
+            worker = self._workers.get(worker_id)
+        if worker is not None:
+            self._terminate_workers((worker,), grace_seconds)
+
     def terminate_all(self, grace_seconds: float = 10.0) -> None:
-        """Terminate owned process groups, escalating after a grace period.
+        """Terminate all owned process groups, escalating after a grace period.
 
         Args:
             grace_seconds: Time allowed for graceful termination before kill.
         """
-        workers = self.snapshot()
+        self._terminate_workers(self.snapshot(), grace_seconds)
+
+    @staticmethod
+    def _terminate_workers(
+        workers: Sequence[ActiveWorker],
+        grace_seconds: float,
+    ) -> None:
+        """Apply shared TERM/grace/KILL behavior to explicit owned workers.
+
+        Args:
+            workers: Exact registered workers whose process groups are owned.
+            grace_seconds: Time allowed for graceful termination before kill.
+        """
+        workers = tuple(workers)
         for worker in workers:
             process = worker.process
-            if process.poll() is not None:
+            if not ActiveProcessRegistry._worker_group_is_alive(worker):
                 continue
             try:
                 if os.name == "posix":
@@ -140,13 +359,16 @@ class ActiveProcessRegistry:
 
         deadline = monotonic() + max(0.0, grace_seconds)
         while monotonic() < deadline:
-            if all(worker.process.poll() is not None for worker in workers):
+            if all(
+                not ActiveProcessRegistry._worker_group_is_alive(worker)
+                for worker in workers
+            ):
                 return
             sleep(0.05)
 
         for worker in workers:
             process = worker.process
-            if process.poll() is not None:
+            if not ActiveProcessRegistry._worker_group_is_alive(worker):
                 continue
             try:
                 if os.name == "posix":
@@ -155,6 +377,26 @@ class ActiveProcessRegistry:
                     process.kill()
             except ProcessLookupError:
                 continue
+
+    @staticmethod
+    def _worker_group_is_alive(worker: ActiveWorker) -> bool:
+        """Report whether an owned worker or POSIX process group remains.
+
+        Args:
+            worker: Registered worker whose launch created the process group.
+
+        Returns:
+            Whether the owned termination target still exists.
+        """
+        if os.name != "posix":
+            return worker.process.poll() is None
+        try:
+            os.killpg(worker.process.pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
 
 
 def validate_model_ids(model_ids: Sequence[str]) -> tuple[str, ...]:
@@ -381,6 +623,7 @@ class SubprocessModelWorker:
         phase: str,
         registry: ActiveProcessRegistry,
         event_queue: queue.Queue[dict[str, Any]],
+        resource_guard: PerModelResourceGuard | None = None,
         expected_checkpoints: dict[str, ArtifactCheckpoint] | None = None,
         expected_stage_checkpoints: dict[str, dict[str, ArtifactCheckpoint]]
         | None = None,
@@ -394,6 +637,7 @@ class SubprocessModelWorker:
             phase: Explicit requested phase.
             registry: Live process registry.
             event_queue: Thread-to-coordinator event queue.
+            resource_guard: Independent per-model operational limit guard.
             expected_checkpoints: Pre-test checkpoints keyed by model.
             expected_stage_checkpoints: Verified stage checkpoints by model.
             held_out_test_authorized: Explicit held-out authorization.
@@ -402,6 +646,9 @@ class SubprocessModelWorker:
         self.variant = variant
         self.phase = phase
         self.registry = registry
+        self.resource_guard = resource_guard or PerModelResourceGuard(
+            PerModelResourcePolicy()
+        )
         self.event_queue = event_queue
         self.expected_checkpoints = expected_checkpoints or {}
         self.expected_stage_checkpoints = expected_stage_checkpoints or {}
@@ -441,6 +688,7 @@ class SubprocessModelWorker:
             )
             result_payload: dict[str, Any] | None = None
             environment = worker_environment()
+            last_stage = self.phase
 
             with log_path.open("a", encoding="utf-8") as log_stream:
                 process = subprocess.Popen(
@@ -453,6 +701,8 @@ class SubprocessModelWorker:
                     bufsize=1,
                     start_new_session=(os.name == "posix"),
                 )
+                launched_at = monotonic()
+                self.resource_guard.register_worker(worker_id, launched_at)
                 self.registry.add(
                     ActiveWorker(
                         worker_id=worker_id,
@@ -460,6 +710,7 @@ class SubprocessModelWorker:
                         stage="starting",
                         state="running",
                         process=process,
+                        started_at_monotonic=launched_at,
                     )
                 )
                 self.event_queue.put(
@@ -486,6 +737,7 @@ class SubprocessModelWorker:
                     if event.get("event") == "result":
                         result_payload = event
                     elif "stage" in event:
+                        last_stage = str(event["stage"])
                         self.registry.update_stage(
                             worker_id,
                             str(event["stage"]),
@@ -493,7 +745,28 @@ class SubprocessModelWorker:
                         )
                 exit_code = process.wait()
 
+            resource_failure = self.resource_guard.finish_worker(worker_id)
+            if resource_failure is not None:
+                return WorkerOutcome(
+                    model_id=model_id,
+                    worker_id=worker_id,
+                    status="resource_censored",
+                    exit_code=exit_code,
+                    result=result_payload,
+                    failure=(
+                        "Worker was resource-censored: "
+                        f"{resource_failure.failure_kind}."
+                    ),
+                    failure_info=resource_failure,
+                )
             status = "completed" if exit_code == 0 else "failed"
+            failure_info = None
+            if exit_code != 0:
+                failure_info = WorkerFailureInfo(
+                    failure_kind="worker_nonzero_exit",
+                    last_stage=last_stage,
+                    elapsed_worker_seconds=max(0.0, monotonic() - launched_at),
+                )
             return WorkerOutcome(
                 model_id=model_id,
                 worker_id=worker_id,
@@ -501,9 +774,11 @@ class SubprocessModelWorker:
                 exit_code=exit_code,
                 result=result_payload,
                 failure=None if exit_code == 0 else f"Worker exited {exit_code}.",
+                failure_info=failure_info,
             )
         finally:
             self.registry.remove(worker_id)
+            self.resource_guard.finish_worker(worker_id)
             lock.release()
 
 
@@ -612,6 +887,7 @@ def execute_batch(
     telemetry_interval_seconds: float = DEFAULT_SAMPLING_INTERVAL_SECONDS,
     held_out_test_authorized: bool = False,
     memory_safety_policy: MemorySafetyPolicy | None = None,
+    per_model_resource_policy: PerModelResourcePolicy | None = None,
     preflight_runner: Callable[[str], PreflightResult] = run_preflight,
     output_stream: Any = sys.stdout,
 ) -> list[WorkerOutcome]:
@@ -626,6 +902,7 @@ def execute_batch(
         telemetry_interval_seconds: Persistent monitoring interval.
         held_out_test_authorized: Explicit held-out authorization.
         memory_safety_policy: Optional pre-launch and runtime memory gates.
+        per_model_resource_policy: Independent operational worker limits.
         preflight_runner: Existing preflight logic, injectable for tests.
         output_stream: Non-TTY-safe progress stream.
 
@@ -641,6 +918,7 @@ def execute_batch(
         raise RuntimeError("Batch held-out test requires explicit authorization.")
 
     memory_safety_policy = memory_safety_policy or MemorySafetyPolicy()
+    per_model_resource_policy = per_model_resource_policy or PerModelResourcePolicy()
     resources = discover_resources()
     validate_prelaunch_memory(memory_safety_policy, resources)
     effective_workers = min(workers, len(models))
@@ -721,6 +999,7 @@ def execute_batch(
         }
     )
     memory_safety.setdefault("events", [])
+    manifest.payload["per_model_resource_policy"] = asdict(per_model_resource_policy)
     manifest.write()
     registry = ActiveProcessRegistry()
     events: queue.Queue[dict[str, Any]] = queue.Queue()
@@ -730,6 +1009,7 @@ def execute_batch(
     samplers: dict[tuple[str, int], ProcessTreeSampler] = {}
     last_sample = 0.0
     memory_guard = MemoryPressureGuard(memory_safety_policy)
+    per_model_resource_guard = PerModelResourceGuard(per_model_resource_policy)
     memory_emergency_triggered = False
 
     expected_checkpoints: dict[str, ArtifactCheckpoint] = {}
@@ -759,6 +1039,7 @@ def execute_batch(
         variant=variant,
         phase=phase,
         registry=registry,
+        resource_guard=per_model_resource_guard,
         event_queue=events,
         expected_checkpoints=expected_checkpoints,
         expected_stage_checkpoints=expected_stage_checkpoints,
@@ -776,8 +1057,10 @@ def execute_batch(
             return
         last_sample = elapsed
         rows: list[dict[str, Any]] = []
+        sampled_workers: list[tuple[ActiveWorker, int | None]] = []
         for active in registry.snapshot():
             key = (active.worker_id, active.process.pid)
+            process_tree_rss_bytes: int | None = None
             try:
                 sampler = samplers.get(key)
                 if sampler is None:
@@ -800,10 +1083,13 @@ def execute_batch(
                     elapsed_seconds=elapsed,
                 )
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                continue
-            telemetry.write(row)
-            rows.append(row)
-        failed = sum(outcome.status == "failed" for outcome in completed)
+                pass
+            else:
+                telemetry.write(row)
+                rows.append(row)
+                process_tree_rss_bytes = int(row["process_tree_rss_bytes"])
+            sampled_workers.append((active, process_tree_rss_bytes))
+        failed = sum(outcome.status != "completed" for outcome in completed)
         completed_count = sum(outcome.status == "completed" for outcome in completed)
         reporter.report(
             completed=completed_count,
@@ -830,9 +1116,24 @@ def execute_batch(
             manifest.payload["batch_status"] = "memory_safety_stopping"
             manifest.write()
             registry.terminate_all()
+            return
+
+        if memory_emergency_triggered:
+            return
+        for active, process_tree_rss_bytes in sampled_workers:
+            resource_failure = per_model_resource_guard.observe(
+                worker_id=active.worker_id,
+                stage=active.stage,
+                process_tree_rss_bytes=process_tree_rss_bytes,
+                observed_at_monotonic=monotonic(),
+                started_at_monotonic=active.started_at_monotonic,
+            )
+            if resource_failure is not None:
+                registry.terminate_worker(active.worker_id)
 
     previous_handlers: dict[signal.Signals, Any] = {}
     if threading.current_thread() is threading.main_thread():
+
         def handle_termination(_signum: int, _frame: Any) -> None:
             """Stop scheduling and terminate only this batch's workers."""
             stop_event.set()
@@ -859,7 +1160,9 @@ def execute_batch(
 
     for outcome in outcomes:
         model_status = "failed"
-        if outcome.status == "completed":
+        if outcome.status == "resource_censored":
+            model_status = "resource_censored"
+        elif outcome.status == "completed":
             if phase == "test":
                 model_status = "test_complete"
             elif outcome.result and outcome.result.get("pretest_checkpoint"):
@@ -872,6 +1175,11 @@ def execute_batch(
             status=outcome.status,
             worker_id=outcome.worker_id,
             exit_code=outcome.exit_code,
+            failure_kind=(
+                outcome.failure_info.failure_kind
+                if outcome.failure_info is not None
+                else None
+            ),
         )
         updates: dict[str, Any] = {
             "status": model_status,
@@ -879,7 +1187,13 @@ def execute_batch(
             "ended_at_utc": utc_timestamp(),
         }
         if outcome.failure:
-            updates["failures"] = [outcome.failure]
+            if outcome.status == "resource_censored":
+                updates["operational_failures"] = [outcome.failure]
+            else:
+                updates["failures"] = [outcome.failure]
+        if outcome.failure_info is not None:
+            updates["failure_info"] = asdict(outcome.failure_info)
+            updates["failure_kind"] = outcome.failure_info.failure_kind
         if outcome.result:
             updates["worker_result"] = outcome.result
             checkpoint = outcome.result.get("pretest_checkpoint")
@@ -903,15 +1217,20 @@ def execute_batch(
             "interrupted"
             if stop_event.is_set()
             else (
-                "completed"
-                if all(outcome.status == "completed" for outcome in outcomes)
-                else "completed_with_failures"
+                "orchestration_failed"
+                if len(outcomes) != len(models)
+                or any(outcome.global_invariant_failure for outcome in outcomes)
+                else (
+                    "completed"
+                    if all(outcome.status == "completed" for outcome in outcomes)
+                    else "completed_with_failures"
+                )
             )
         )
     )
     manifest.write()
     completed_count = sum(outcome.status == "completed" for outcome in outcomes)
-    failed_count = sum(outcome.status == "failed" for outcome in outcomes)
+    failed_count = sum(outcome.status != "completed" for outcome in outcomes)
     reporter.report(
         completed=completed_count,
         total=len(models),
@@ -951,23 +1270,114 @@ def parse_arguments(arguments: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--authorize-held-out-test", action="store_true")
     parser.add_argument(
         "--min-available-memory-gib",
-        type=float,
+        type=_nonnegative_float,
         default=0.0,
         help="Block launch below this effective available-memory floor.",
     )
     parser.add_argument(
         "--emergency-available-memory-gib",
-        type=float,
+        type=_nonnegative_float,
         default=0.0,
         help="Gracefully stop after persistent runtime memory pressure.",
     )
     parser.add_argument(
         "--memory-emergency-samples",
-        type=int,
+        type=_positive_int,
         default=2,
         help="Consecutive low-memory samples required before stopping.",
     )
+    parser.add_argument(
+        "--per-model-memory-gib",
+        type=_nonnegative_float,
+        default=0.0,
+        help="Maximum recursive RSS per model; zero disables the limit.",
+    )
+    parser.add_argument(
+        "--per-model-memory-samples",
+        type=_positive_int,
+        default=2,
+        help="Consecutive over-limit RSS samples required per model.",
+    )
+    parser.add_argument(
+        "--per-model-timeout-minutes",
+        type=_nonnegative_float,
+        default=0.0,
+        help="Wall-clock timeout from each model's launch; zero disables it.",
+    )
+    parser.add_argument(
+        "--model-failure-exit-policy",
+        choices=("error", "success"),
+        default="error",
+        help=(
+            "Use 'success' to return zero for completed_with_failures; "
+            "interrupted and memory-safety-stopped batches remain nonzero."
+        ),
+    )
     return parser.parse_args(arguments)
+
+
+def _nonnegative_float(value: str) -> float:
+    """Parse one finite non-negative CLI number.
+
+    Args:
+        value: Raw command-line value.
+
+    Returns:
+        Validated floating-point value.
+
+    Raises:
+        argparse.ArgumentTypeError: If the value is invalid.
+    """
+    try:
+        parsed = float(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be a number") from error
+    if not math.isfinite(parsed) or parsed < 0.0:
+        raise argparse.ArgumentTypeError("must be finite and non-negative")
+    return parsed
+
+
+def _positive_int(value: str) -> int:
+    """Parse one positive CLI integer.
+
+    Args:
+        value: Raw command-line value.
+
+    Returns:
+        Validated integer value.
+
+    Raises:
+        argparse.ArgumentTypeError: If the value is below one.
+    """
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be an integer") from error
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be at least one")
+    return parsed
+
+
+def batch_exit_code(batch_status: str, model_failure_exit_policy: str) -> int:
+    """Map an authoritative manifest status to the explicit CLI exit policy.
+
+    Args:
+        batch_status: Final coordinator status from the run manifest.
+        model_failure_exit_policy: ``error`` or ``success`` for model failures.
+
+    Returns:
+        Process exit code zero or one.
+    """
+    if model_failure_exit_policy not in {"error", "success"}:
+        raise ValueError("Unknown model failure exit policy.")
+    if batch_status == "completed":
+        return 0
+    if (
+        batch_status == "completed_with_failures"
+        and model_failure_exit_policy == "success"
+    ):
+        return 0
+    return 1
 
 
 def main() -> None:
@@ -984,7 +1394,7 @@ def main() -> None:
         context_arguments["runs_root"] = arguments.runs_root.resolve()
     context = RunContext(**context_arguments)
     model_ids = load_cohort_manifest(arguments.manifest)
-    outcomes = execute_batch(
+    execute_batch(
         model_ids=model_ids,
         variant=variant,
         workers=arguments.workers,
@@ -1001,11 +1411,23 @@ def main() -> None:
             ),
             emergency_consecutive_samples=arguments.memory_emergency_samples,
         ),
+        per_model_resource_policy=PerModelResourcePolicy(
+            maximum_process_tree_rss_bytes=int(
+                arguments.per_model_memory_gib * BYTES_PER_GIBIBYTE
+            ),
+            memory_consecutive_samples=arguments.per_model_memory_samples,
+            wall_clock_timeout_seconds=(arguments.per_model_timeout_minutes * 60.0),
+        ),
     )
-    if len(outcomes) != len(model_ids) or any(
-        outcome.status != "completed" for outcome in outcomes
-    ):
-        raise SystemExit(1)
+    manifest = load_run_manifest(context=context)
+    manifest.payload["cli_model_failure_exit_policy"] = (
+        arguments.model_failure_exit_policy
+    )
+    manifest.write()
+    status = str(manifest.payload.get("batch_status", "unknown"))
+    exit_code = batch_exit_code(status, arguments.model_failure_exit_policy)
+    if exit_code != 0:
+        raise SystemExit(exit_code)
 
 
 if __name__ == "__main__":

@@ -274,7 +274,7 @@ class RunManifest:
         timestamp = utc_timestamp()
         if status == "running":
             stage_record.setdefault("started_at_utc", timestamp)
-        if status in {"completed", "failed", "skipped"}:
+        if status in {"completed", "failed", "resource_censored", "skipped"}:
             stage_record["ended_at_utc"] = timestamp
         stage_record["updated_at_utc"] = timestamp
         self.write()

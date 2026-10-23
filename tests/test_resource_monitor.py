@@ -25,6 +25,13 @@ from src.resource_monitor import (
     read_cgroup_v2_memory_limit,
     validate_prelaunch_memory,
 )
+from src.run_batch import (
+    ActiveProcessRegistry,
+    ActiveWorker,
+    PerModelResourceGuard,
+    PerModelResourcePolicy,
+    WorkerFailureInfo,
+)
 
 
 class ResourceDiscoveryTests(unittest.TestCase):
@@ -239,6 +246,174 @@ while time.monotonic() < end:
             process.stdout.close()
         if process.stderr is not None:
             process.stderr.close()
+
+
+@unittest.skipUnless(os.name == "posix", "Process-group integration requires POSIX.")
+class PerModelResourceIntegrationTests(unittest.TestCase):
+    """Exercise real Linux sampling, resource decisions, and termination."""
+
+    def test_real_rss_limit_terminates_worker_and_preserves_isolation(self) -> None:
+        allocation_bytes = 48 * 1024**2
+        memory_limit_bytes = 16 * 1024**2
+        worker_code = f"""import time
+payload = bytearray({allocation_bytes})
+for index in range(0, len(payload), 4096):
+    payload[index] = 1
+print("ready", flush=True)
+time.sleep(10)
+"""
+        process = subprocess.Popen(
+            [sys.executable, "-c", worker_code],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+        started_at = time.monotonic()
+        self.addCleanup(ProcessTreeTelemetryTests._terminate, process)
+        assert process.stdout is not None
+        self.assertEqual(process.stdout.readline().strip(), "ready")
+
+        worker_id = "real-memory-worker"
+        stage = "real_memory_stage"
+        registry = ActiveProcessRegistry()
+        registry.add(
+            ActiveWorker(
+                worker_id=worker_id,
+                model_id="MEMORY_MODEL",
+                stage=stage,
+                state="running",
+                process=process,
+                started_at_monotonic=started_at,
+            )
+        )
+        guard = PerModelResourceGuard(
+            PerModelResourcePolicy(
+                maximum_process_tree_rss_bytes=memory_limit_bytes,
+                memory_consecutive_samples=2,
+            )
+        )
+        guard.register_worker(worker_id, started_at)
+        sampler = ProcessTreeSampler(
+            parent_pid=process.pid,
+            effective_cpu_capacity=1.0,
+        )
+        sampler.prime()
+
+        failure_info: WorkerFailureInfo | None = None
+        deadline = time.monotonic() + 2.0
+        try:
+            while failure_info is None and time.monotonic() < deadline:
+                observed_at = time.monotonic()
+                row = sampler.sample(
+                    context=WorkerTelemetryContext(
+                        run_id="integration-run",
+                        worker_id=worker_id,
+                        model_id="MEMORY_MODEL",
+                        stage=stage,
+                        worker_state="running",
+                    ),
+                    elapsed_seconds=observed_at - started_at,
+                )
+                failure_info = guard.observe(
+                    worker_id=worker_id,
+                    stage=stage,
+                    process_tree_rss_bytes=int(row["process_tree_rss_bytes"]),
+                    observed_at_monotonic=observed_at,
+                    started_at_monotonic=started_at,
+                )
+                if failure_info is None:
+                    time.sleep(0.02)
+
+            self.assertIsNotNone(failure_info)
+            assert failure_info is not None
+            self.assertEqual(failure_info.failure_kind, "memory_limit_exceeded")
+            self.assertGreater(
+                failure_info.peak_process_tree_rss_bytes,
+                memory_limit_bytes,
+            )
+            self.assertEqual(failure_info.last_stage, stage)
+        finally:
+            registry.terminate_worker(worker_id, grace_seconds=0.5)
+            process.wait(timeout=2.0)
+            registry.remove(worker_id)
+            guard.finish_worker(worker_id)
+
+        self.assertIsNotNone(process.poll())
+        self._assert_successor_process_runs()
+
+    def test_real_timeout_terminates_worker_and_preserves_isolation(self) -> None:
+        process = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(10)"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+        started_at = time.monotonic()
+        self.addCleanup(ProcessTreeTelemetryTests._terminate, process)
+        worker_id = "real-timeout-worker"
+        timeout_seconds = 0.2
+        stage = "real_timeout_stage"
+        registry = ActiveProcessRegistry()
+        registry.add(
+            ActiveWorker(
+                worker_id=worker_id,
+                model_id="TIMEOUT_MODEL",
+                stage=stage,
+                state="running",
+                process=process,
+                started_at_monotonic=started_at,
+            )
+        )
+        guard = PerModelResourceGuard(
+            PerModelResourcePolicy(
+                wall_clock_timeout_seconds=timeout_seconds,
+            )
+        )
+        guard.register_worker(worker_id, started_at)
+
+        failure_info: WorkerFailureInfo | None = None
+        deadline = time.monotonic() + 2.0
+        try:
+            while failure_info is None and time.monotonic() < deadline:
+                failure_info = guard.observe(
+                    worker_id=worker_id,
+                    stage=stage,
+                    process_tree_rss_bytes=None,
+                    observed_at_monotonic=time.monotonic(),
+                    started_at_monotonic=started_at,
+                )
+                if failure_info is None:
+                    time.sleep(0.02)
+
+            self.assertIsNotNone(failure_info)
+            assert failure_info is not None
+            self.assertEqual(failure_info.failure_kind, "timeout_exceeded")
+            self.assertGreaterEqual(
+                failure_info.elapsed_worker_seconds,
+                timeout_seconds,
+            )
+        finally:
+            registry.terminate_worker(worker_id, grace_seconds=0.5)
+            process.wait(timeout=2.0)
+            registry.remove(worker_id)
+            guard.finish_worker(worker_id)
+
+        self.assertIsNotNone(process.poll())
+        self._assert_successor_process_runs()
+
+    def _assert_successor_process_runs(self) -> None:
+        """Prove prior process-group termination spared subsequent work."""
+        successor = subprocess.run(
+            [sys.executable, "-c", "print('successor-ok')"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            start_new_session=True,
+        )
+        self.assertEqual(successor.stdout.strip(), "successor-ok")
 
 
 if __name__ == "__main__":
