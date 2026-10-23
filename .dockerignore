@@ -17,3 +17,7 @@ runs
 project_backups
 tests
 data2sbml
+
+# docker/expanded_100_inputs is the sole frozen scientific input bundle and is
+# intentionally retained in the build context; the source results/data trees
+# above remain excluded.

@@ -1,155 +1,190 @@
-# Docker foundation
+# Expanded 100-model Docker deployment
 
-This document describes the Phase-6 container foundation. It validates the
-runtime and deployment boundary; it does not establish scientific equivalence
-between native and container executions. That comparison belongs to Phase 7.
+This image packages the validated expanded benchmark inputs: the historical
+43-model cohort plus the 57 models recovered through corrected filename
+discovery and model-aware metadata. This is the same scientific protocol, not
+a new methodological cohort. The historical 43-model manifest remains a
+separate, unchanged artifact.
 
-## Prerequisites and supported platform
+The supported runtime platform is `linux/amd64`. The frozen
+`libroadrunner==2.8.0` dependency has no Linux arm64 wheel, so the Dockerfile
+rejects other target architectures. The image remains non-root (UID 10001),
+installs the frozen `uv.lock`, and initializes Julia/PySR during the build.
 
-Use Docker Engine or Docker Desktop with Buildx. The currently validated image
-platform is `linux/amd64`. The frozen `libroadrunner==2.8.0` dependency does not
-publish a Linux arm64 wheel, so native `linux/arm64` builds are deliberately
-rejected. Apple Silicon Macs can run the amd64 image through Docker Desktop
-emulation by specifying `--platform linux/amd64`.
+## Frozen input bundle
 
-The Ubuntu compute machine's architecture must be checked with `uname -m`
-before choosing an image platform.
+The deterministic bundle is stored at `docker/expanded_100_inputs`:
+
+```text
+docker/expanded_100_inputs/
+├── models/
+│   └── <100 model_id directories>/<original SBML filename>
+└── metadata/
+    ├── benchmark_ready_100.json
+    ├── model_time.jsonl
+    └── bundle_provenance.json
+```
+
+It contains exactly the 100 resolved SBML files, preserving their original
+filenames, and exactly the corresponding 100 model-aware metadata rows. The
+CSV inventory is validation evidence only and is not runtime configuration.
+The full 497-model source tree and historical CSV metadata are not copied into
+the image.
+
+Rebuild the bundle only from the validated native sources. The destination
+must not already exist; the builder deliberately refuses to overwrite it:
+
+```bash
+uv run python -m src.docker_input_bundle
+uv run python -m src.docker_input_bundle \
+  --validate-only \
+  --output docker/expanded_100_inputs
+```
+
+The builder uses the production `load_cohort_manifest`, `resolve_model_path`,
+and `load_simulation_time` functions. It rejects duplicate IDs, missing or
+ambiguous models, missing or duplicate metadata, filename mismatches,
+nonpositive/nonfinite simulation times, and any cohort size other than 100.
+`bundle_provenance.json` records source hashes and per-model SBML/metadata
+hashes; it never repairs source inputs.
 
 ## Build
 
+From the repository root:
+
 ```bash
-docker build \
+docker buildx build \
   --platform linux/amd64 \
   --build-arg VCS_REF="$(git rev-parse HEAD)" \
-  --tag pysr-only:phase6-amd64 \
+  --tag pysr-only:expanded-100-exact \
+  --load \
   .
 ```
 
-The image uses Python 3.11 and installs the locked dependencies with
-`uv sync --frozen`. Julia and the PySR Julia environment are initialized during
-the build. Read-only Julia packages are baked under `/opt/julia-depot`; runtime
-logs, compiled caches, and updates use the writable `/cache/julia` depot.
+The build validates all bundled manifest entries against the bundled SBML and
+model-aware JSONL without running PySR. The immutable image paths are:
 
-## Filesystem and mounts
+| Purpose | Image path | Runtime setting |
+|---|---|---|
+| Expanded model root | `/opt/pysr/inputs/expanded_100/models` | `PYSR_MODEL_ROOT` |
+| Model-aware times | `/opt/pysr/inputs/expanded_100/metadata/model_time.jsonl` | `PYSR_MODEL_TIME_METADATA_PATH` |
+| 100-model manifest | `/opt/pysr/inputs/expanded_100/metadata/benchmark_ready_100.json` | `PYSR_EXPANDED_COHORT_MANIFEST` |
 
-The application uses environment-based paths with native-compatible defaults:
+No scientific input mount is needed on the compute machine.
 
-| Purpose | Container path | Environment variable | Access |
-|---|---|---|---|
-| BioModels tree | `/inputs/models` | `PYSR_MODEL_ROOT` | read-only |
-| Simulation metadata | `/inputs/metadata/time_curated_images.csv` | `PYSR_SIMULATION_METADATA_PATH` | read-only |
-| Scientific outputs | `/results` | `PYSR_RESULTS_ROOT` | writable |
-| Manifests/logs/telemetry | `/runs` | `PYSR_RUNS_ROOT` | writable |
-| Application cache | `/cache/project` | `PYSR_CACHE_ROOT` | writable |
-| Julia depot | `/cache/julia` | `JULIA_DEPOT_PATH` | writable |
-| uv cache | `/cache/uv` | `UV_CACHE_DIR` | writable |
+## Output boundary
 
-Mount the input roots read-only and use isolated writable directories for
-outputs. Do not point container smoke tests at frozen native results.
+One writable host root is mounted at `/output`:
+
+| Purpose | Container path | Runtime setting |
+|---|---|---|
+| Scientific results | `/output/results` | `PYSR_RESULTS_ROOT` |
+| Manifests, logs, telemetry, locks | `/output/runs` | `PYSR_RUNS_ROOT` |
+| Project cache | `/output/cache/project` | `PYSR_CACHE_ROOT` |
+| Julia runtime cache | `/output/cache/julia` | `JULIA_DEPOT_PATH` writable layer |
+| uv runtime cache | `/output/cache/uv` | `UV_CACHE_DIR` |
+
+The host output directory must exist and be writable by container UID 10001
+(or have an equivalent ACL). Do not run the image as root to bypass output
+permissions. Results, manifests, logs, telemetry, and mutable caches therefore
+survive container removal while the image and its scientific inputs remain
+immutable.
+
+## Input and runtime smoke validation
+
+This validates all 100 input mappings without initializing PySR or Julia:
 
 ```bash
 docker run --rm --platform linux/amd64 \
-  --mount type=bind,src=/HOST/MODELS,dst=/inputs/models,readonly \
-  --mount type=bind,src=/HOST/METADATA,dst=/inputs/metadata,readonly \
-  --mount type=bind,src=/HOST/RESULTS,dst=/results \
-  --mount type=bind,src=/HOST/RUNS,dst=/runs \
-  --mount type=bind,src=/HOST/CACHE,dst=/cache \
-  pysr-only:phase6-amd64 \
-  -m src.container_smoke --model-id BIOMD0000000079 --simulate \
+  pysr-only:expanded-100-exact \
+  -m src.container_smoke \
+  --validate-cohort-manifest \
+  /opt/pysr/inputs/expanded_100/metadata/benchmark_ready_100.json
+```
+
+The full dependency and RoadRunner smoke can inspect one bundled model without
+fitting PySR:
+
+```bash
+docker run --rm --platform linux/amd64 \
+  --mount type=bind,src=/HOST/OUTPUT,dst=/output \
+  pysr-only:expanded-100-exact \
+  -m src.container_smoke \
+  --model-id BIOMD0000000079 \
+  --simulate \
   --check-writable
 ```
 
-Bind-mounted writable directories must grant the container user write access.
-The default non-root user has UID 10001. Named volumes inherit container-side
-ownership; bind mounts may require host-side ownership or ACL configuration.
-Do not make scientific input mounts writable.
+## Memory controls
 
-## CLI and worker controls
+The three memory controls are deliberately separate:
 
-The image entrypoint is the environment's Python executable and preserves all
-arguments. A future batch invocation therefore uses the same application CLI:
+1. Docker `--memory` is the hard cgroup ceiling for the entire container.
+   Setting `--memory-swap` to the same value prevents additional swap-backed
+   allowance. Crossing the hard ceiling can cause a kernel OOM kill.
+2. `--emergency-available-memory-gib` is the existing global batch guard. After
+   the configured consecutive low-available-memory samples, it stops new
+   scheduling, terminates every owned worker, records the event, and produces
+   `memory_safety_stopped`.
+3. `--per-model-memory-gib` and `--per-model-timeout-minutes` are operational
+   limits for one model worker. Persistent recursive RSS excess or timeout
+   censors only that worker; remaining models continue and the manifest records
+   the operational reason.
+
+These controls do not alter PySR settings, simulation times, derivative
+generation, candidate generation, selection, or held-out-test protections.
+Choose machine-dependent values only after inspecting the Ubuntu host and a
+representative run.
+
+## One-command expanded pretest batch
+
+Replace every angle-bracket placeholder with a reviewed value for the Ubuntu
+machine. `--phase pretest` intentionally stops before held-out evaluation, and
+exact derivatives reproduce the validated same-protocol expanded benchmark.
 
 ```bash
-docker run --rm --platform linux/amd64 --cpus=2 --memory=8g \
-  ...mounts... \
-  pysr-only:phase6-amd64 \
+docker run --rm \
+  --platform linux/amd64 \
+  --cpus <HOST_CPU_LIMIT> \
+  --memory <GLOBAL_MEMORY_LIMIT> \
+  --memory-swap <GLOBAL_MEMORY_LIMIT> \
+  --mount type=bind,src=/HOST/OUTPUT,dst=/output \
+  pysr-only:expanded-100-exact \
   -m src.run_batch \
-  --manifest /inputs/metadata/cohort.json \
-  --derivative-method savgol \
-  --workers 2 \
+  --manifest /opt/pysr/inputs/expanded_100/metadata/benchmark_ready_100.json \
+  --derivative-method exact \
   --phase pretest \
-  --run-id example-pretest \
-  --min-available-memory-gib 6 \
-  --emergency-available-memory-gib 2
+  --workers <SAFE_WORKER_COUNT> \
+  --run-id <UNIQUE_RUN_ID> \
+  --min-available-memory-gib <PRELAUNCH_AVAILABLE_GIB> \
+  --emergency-available-memory-gib <GLOBAL_EMERGENCY_AVAILABLE_GIB> \
+  --memory-emergency-samples 2 \
+  --per-model-memory-gib <PER_MODEL_RSS_GIB> \
+  --per-model-memory-samples 2 \
+  --per-model-timeout-minutes <PER_MODEL_TIMEOUT_MINUTES> \
+  --model-failure-exit-policy success
 ```
 
-`--workers` remains a runtime choice. The image does not select worker counts
-automatically. Every scientific worker receives these fixed isolation values:
+The explicit `success` exit policy returns zero only when orchestration reaches
+`completed_with_failures`; interruption, orchestration failure, and global
+memory-safety stop remain nonzero. The run manifest under `/output/runs` is
+authoritative. Individual resource censoring never authorizes held-out testing.
+A later `test` phase still requires the separate `--authorize-held-out-test`
+flag and the verified pretest checkpoints.
 
-```text
-OMP_NUM_THREADS=1
-OPENBLAS_NUM_THREADS=1
-MKL_NUM_THREADS=1
-NUMEXPR_NUM_THREADS=1
-JULIA_NUM_THREADS=1
-```
+## Provenance and troubleshooting
 
-Docker CPU quotas and cgroup-v2 memory limits are detected by the existing
-resource monitor. The pre-launch memory floor and persistent runtime emergency
-threshold are explicit CLI settings; they do not alter scientific algorithms.
-
-## Lightweight checks
-
-Resource discovery requires no scientific runtime initialization:
+Inspect the image revision and platform with:
 
 ```bash
-docker run --rm --cpus=2 --memory=4g pysr-only:phase6-amd64 \
-  -m src.container_smoke --resources-only
-```
-
-The full smoke imports NumPy, SciPy, pandas, SymPy, psutil, PySR, juliacall,
-RoadRunner, and libSBML. With mounted inputs, it may also perform preflight and
-a three-point RoadRunner simulation. It never fits PySR or creates benchmark
-results.
-
-To verify the memory gate safely, run a preflight batch with a 4 GiB container
-limit and `--min-available-memory-gib 6`. The expected nonzero exit occurs
-before a run manifest, scientific namespace, or worker is created.
-
-## Provenance
-
-Inspect the embedded source revision and image platform with:
-
-```bash
-docker image inspect pysr-only:phase6-amd64 \
+docker image inspect pysr-only:expanded-100-exact \
   --format '{{.Id}} {{.Os}}/{{.Architecture}} {{index .Config.Labels "org.opencontainers.image.revision"}}'
 ```
 
-The container smoke report records Python, package, Julia, RoadRunner, and
-libSBML versions. Run manifests use the embedded `PYSR_GIT_COMMIT` when the
-excluded `.git` directory is unavailable.
-
-## Apple Silicon and Ubuntu
-
-On Apple Silicon, build or run with `--platform linux/amd64`; Docker Desktop
-uses emulation. This is not native arm64 validation and may be slower. A native
-Linux arm64 image remains blocked by the missing pinned libroadrunner wheel.
-
-On Ubuntu Linux, first run `uname -m`. An `x86_64` host can use the validated
-amd64 image natively. Any other architecture requires separate dependency and
-runtime validation before scientific use.
-
-## Signals and troubleshooting
-
-The batch coordinator handles SIGINT and SIGTERM, stops new scheduling, and
-terminates only its owned process groups. Completed checkpoints remain
-available for verified resume.
-
-- If Julia cannot write logs, verify that `/cache/julia` is writable.
-- If uv cannot write, verify `/cache/uv` permissions.
-- If mounted outputs are read-only, adjust the host directory ownership/ACL;
-  do not run the scientific container as root by default.
-- If the memory gate blocks, increase the container memory limit or reduce the
-  explicitly requested workload in a separately reviewed run.
-- Do not use an arm64 build failure as justification to loosen the frozen
-  scientific dependency versions.
+- If `/output` is not writable, fix host ownership or ACLs for UID 10001.
+- If the global emergency guard fires, inspect telemetry before changing the
+  reviewed worker count or thresholds.
+- If one model is resource-censored, use its manifest `failure_info`; do not
+  reinterpret it as a scientific inference failure.
+- Do not loosen frozen dependencies or scientific settings to work around an
+  unsupported architecture or insufficient host resources.

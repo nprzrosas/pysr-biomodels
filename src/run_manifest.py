@@ -52,6 +52,9 @@ class RunContext:
     simulation_metadata_path: Path = field(
         default_factory=runtime_paths.simulation_metadata_path
     )
+    model_time_metadata_path: Path = field(
+        default_factory=runtime_paths.model_time_metadata_path
+    )
 
     def __post_init__(self) -> None:
         """Reject run identifiers that could escape the configured run root."""
@@ -334,6 +337,7 @@ def create_run_manifest(
             "cache_root": str(context.cache_root),
             "model_input_root": str(context.model_input_root),
             "simulation_metadata_path": str(context.simulation_metadata_path),
+            "model_time_metadata_path": str(context.model_time_metadata_path),
         },
         "models": model_records,
     }

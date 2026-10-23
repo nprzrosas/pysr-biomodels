@@ -32,16 +32,17 @@ WORKDIR /app
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
-    UV_CACHE_DIR=/cache/uv \
+    UV_CACHE_DIR=/output/cache/uv \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHON_JULIAPKG_PROJECT=/app/.venv/julia_env \
-    JULIA_DEPOT_PATH=/cache/julia:/opt/julia-depot \
-    PYSR_MODEL_ROOT=/inputs/models \
-    PYSR_SIMULATION_METADATA_PATH=/inputs/metadata/time_curated_images.csv \
-    PYSR_RESULTS_ROOT=/results \
-    PYSR_RUNS_ROOT=/runs \
-    PYSR_CACHE_ROOT=/cache/project \
+    JULIA_DEPOT_PATH=/output/cache/julia:/opt/julia-depot \
+    PYSR_MODEL_ROOT=/opt/pysr/inputs/expanded_100/models \
+    PYSR_MODEL_TIME_METADATA_PATH=/opt/pysr/inputs/expanded_100/metadata/model_time.jsonl \
+    PYSR_EXPANDED_COHORT_MANIFEST=/opt/pysr/inputs/expanded_100/metadata/benchmark_ready_100.json \
+    PYSR_RESULTS_ROOT=/output/results \
+    PYSR_RUNS_ROOT=/output/runs \
+    PYSR_CACHE_ROOT=/output/cache/project \
     OMP_NUM_THREADS=1 \
     OPENBLAS_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
@@ -55,6 +56,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY src ./src
 COPY main.py ./main.py
+COPY docker/expanded_100_inputs /opt/pysr/inputs/expanded_100
+
+RUN chmod -R a-w /opt/pysr/inputs/expanded_100 \
+    && chmod -R a+rX /opt/pysr/inputs/expanded_100 \
+    && .venv/bin/python -m src.container_smoke \
+       --validate-cohort-manifest /opt/pysr/inputs/expanded_100/metadata/benchmark_ready_100.json
 
 # Initialize Julia and the PySR Julia environment once in the immutable image.
 RUN mkdir -p /opt/julia-depot /cache/julia \
@@ -63,15 +70,20 @@ RUN mkdir -p /opt/julia-depot /cache/julia \
        "import pysr; from juliacall import Main as jl; print(jl.seval('VERSION'))"
 
 RUN useradd --create-home --uid 10001 appuser \
-    && mkdir -p /inputs/models /inputs/metadata /results /runs /cache/project /cache/uv \
+    && mkdir -p \
+        /output/results \
+        /output/runs \
+        /output/cache/project \
+        /output/cache/uv \
+        /output/cache/julia \
     && chown -R appuser:appuser \
         /app/.venv/julia_env \
-        /results \
-        /runs \
-        /cache \
+        /output \
         /home/appuser
 
 USER appuser
+
+VOLUME ["/output"]
 
 ENTRYPOINT ["/app/.venv/bin/python"]
 CMD ["-m", "src.container_smoke", "--resources-only"]

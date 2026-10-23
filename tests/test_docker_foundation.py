@@ -14,12 +14,15 @@ from src.evaluate_generic_validation import resolve_validation_experiment_root
 from src.run_manifest import RunContext, git_identity
 from src.runtime_paths import (
     NATIVE_MODEL_ROOT,
+    NATIVE_MODEL_TIME_METADATA_PATH,
     NATIVE_RESULTS_ROOT,
     model_input_root,
+    model_time_metadata_path,
     results_root,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+BUNDLE_ROOT = PROJECT_ROOT / "docker" / "expanded_100_inputs"
 
 
 class RuntimePathTests(unittest.TestCase):
@@ -36,6 +39,7 @@ class RuntimePathTests(unittest.TestCase):
             environment = {
                 "PYSR_MODEL_ROOT": str(root / "models"),
                 "PYSR_SIMULATION_METADATA_PATH": str(root / "metadata.csv"),
+                "PYSR_MODEL_TIME_METADATA_PATH": str(root / "model_time.jsonl"),
                 "PYSR_RESULTS_ROOT": str(root / "results"),
                 "PYSR_RUNS_ROOT": str(root / "runs"),
                 "PYSR_CACHE_ROOT": str(root / "cache"),
@@ -43,6 +47,14 @@ class RuntimePathTests(unittest.TestCase):
             with patch.dict(os.environ, environment, clear=False):
                 context = RunContext(run_id="container-test")
                 self.assertEqual(context.model_input_root, root / "models")
+                self.assertEqual(
+                    context.model_time_metadata_path,
+                    root / "model_time.jsonl",
+                )
+                self.assertEqual(
+                    model_time_metadata_path(),
+                    root / "model_time.jsonl",
+                )
                 self.assertEqual(context.results_root, root / "results")
                 self.assertEqual(context.runs_root, root / "runs")
                 self.assertEqual(context.cache_root, root / "cache")
@@ -71,10 +83,32 @@ class DockerDefinitionTests(unittest.TestCase):
         self.assertIn("USER appuser", dockerfile)
         self.assertIn("/app/.venv/julia_env", dockerfile)
         self.assertIn("libexpat1", dockerfile)
-        self.assertIn("PYSR_MODEL_ROOT=/inputs/models", dockerfile)
-        self.assertIn("PYSR_RESULTS_ROOT=/results", dockerfile)
-        self.assertIn("PYSR_RUNS_ROOT=/runs", dockerfile)
-        self.assertIn("JULIA_DEPOT_PATH=/cache/julia:/opt/julia-depot", dockerfile)
+        self.assertIn(
+            "PYSR_MODEL_ROOT=/opt/pysr/inputs/expanded_100/models",
+            dockerfile,
+        )
+        self.assertIn(
+            "PYSR_MODEL_TIME_METADATA_PATH=/opt/pysr/inputs/expanded_100/metadata/model_time.jsonl",
+            dockerfile,
+        )
+        self.assertNotIn("PYSR_SIMULATION_METADATA_PATH=", dockerfile)
+        self.assertIn(
+            "PYSR_EXPANDED_COHORT_MANIFEST=/opt/pysr/inputs/expanded_100/metadata/benchmark_ready_100.json",
+            dockerfile,
+        )
+        self.assertIn("PYSR_RESULTS_ROOT=/output/results", dockerfile)
+        self.assertIn("PYSR_RUNS_ROOT=/output/runs", dockerfile)
+        self.assertIn("PYSR_CACHE_ROOT=/output/cache/project", dockerfile)
+        self.assertIn(
+            "JULIA_DEPOT_PATH=/output/cache/julia:/opt/julia-depot",
+            dockerfile,
+        )
+        self.assertIn(
+            "COPY docker/expanded_100_inputs /opt/pysr/inputs/expanded_100",
+            dockerfile,
+        )
+        self.assertIn("chmod -R a-w /opt/pysr/inputs/expanded_100", dockerfile)
+        self.assertIn('VOLUME ["/output"]', dockerfile)
         self.assertIn('ENTRYPOINT ["/app/.venv/bin/python"]', dockerfile)
         self.assertIn('"${TARGETARCH}" != "amd64"', dockerfile)
 
@@ -89,6 +123,8 @@ class DockerDefinitionTests(unittest.TestCase):
         self.assertTrue(
             {".git", ".venv", "results", "runs", "project_backups"} <= entries
         )
+        self.assertNotIn("docker", entries)
+        self.assertNotIn("docker/expanded_100_inputs", entries)
 
     def test_resource_smoke_cli_does_not_initialize_scientific_runtime(self) -> None:
         output = io.StringIO()
@@ -97,6 +133,33 @@ class DockerDefinitionTests(unittest.TestCase):
         payload = json.loads(output.getvalue())
         self.assertIn("resources", payload)
         self.assertIn("thread_environment", payload)
+        self.assertEqual(
+            payload["paths"]["model_time_metadata_path"],
+            str(NATIVE_MODEL_TIME_METADATA_PATH.resolve()),
+        )
+        self.assertNotIn("versions", payload)
+
+    def test_expanded_cohort_smoke_uses_bundled_runtime_paths(self) -> None:
+        environment = {
+            "PYSR_MODEL_ROOT": str(BUNDLE_ROOT / "models"),
+            "PYSR_MODEL_TIME_METADATA_PATH": str(
+                BUNDLE_ROOT / "metadata" / "model_time.jsonl"
+            ),
+        }
+        output = io.StringIO()
+        with (
+            patch.dict(os.environ, environment, clear=False),
+            patch("sys.stdout", output),
+        ):
+            container_smoke_main(
+                [
+                    "--validate-cohort-manifest",
+                    str(BUNDLE_ROOT / "metadata" / "benchmark_ready_100.json"),
+                ]
+            )
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["cohort_validation"]["model_count"], 100)
+        self.assertTrue(payload["cohort_validation"]["all_models_valid"])
         self.assertNotIn("versions", payload)
 
 

@@ -13,6 +13,7 @@ from .resource_monitor import discover_resources
 from .runtime_paths import (
     cache_root,
     model_input_root,
+    model_time_metadata_path,
     results_root,
     runs_root,
     simulation_metadata_path,
@@ -68,12 +69,40 @@ def resource_report() -> dict[str, Any]:
         "resources": discover_resources(),
         "paths": {
             "model_input_root": str(model_input_root()),
+            "model_time_metadata_path": str(model_time_metadata_path()),
             "simulation_metadata_path": str(simulation_metadata_path()),
             "results_root": str(results_root()),
             "runs_root": str(runs_root()),
             "cache_root": str(cache_root()),
         },
         "thread_environment": {name: os.environ.get(name) for name in THREAD_VARIABLES},
+    }
+
+
+def cohort_input_report(manifest_path: Path) -> dict[str, Any]:
+    """Validate cohort resolution against configured model-aware inputs.
+
+    Args:
+        manifest_path: Ordered cohort JSON manifest.
+
+    Returns:
+        Compact validation report without initializing PySR or Julia.
+    """
+    from .model_registry import resolve_model_path
+    from .run_batch import load_cohort_manifest
+    from .simulation_metadata import load_simulation_time
+
+    model_ids = load_cohort_manifest(Path(manifest_path))
+    for model_id in model_ids:
+        model_path = resolve_model_path(model_id)
+        load_simulation_time(
+            model_id=model_id,
+            sbml_filename=model_path.name,
+        )
+    return {
+        "manifest_path": str(Path(manifest_path).resolve()),
+        "model_count": len(model_ids),
+        "all_models_valid": True,
     }
 
 
@@ -159,12 +188,18 @@ def main(arguments: list[str] | None = None) -> None:
     parser.add_argument("--model-id")
     parser.add_argument("--simulate", action="store_true")
     parser.add_argument("--check-writable", action="store_true")
+    parser.add_argument("--validate-cohort-manifest", type=Path)
     options = parser.parse_args(arguments)
     if options.simulate and options.model_id is None:
         parser.error("--simulate requires --model-id")
 
     if options.resources_only:
         report = resource_report()
+    elif options.validate_cohort_manifest is not None:
+        report = resource_report()
+        report["cohort_validation"] = cohort_input_report(
+            options.validate_cohort_manifest
+        )
     else:
         report = full_runtime_report(
             model_id=options.model_id,
