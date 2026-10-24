@@ -81,7 +81,11 @@ class DockerDefinitionTests(unittest.TestCase):
     def test_dockerfile_uses_nonroot_runtime_and_configurable_mount_roots(self) -> None:
         dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
         self.assertIn("USER appuser", dockerfile)
-        self.assertIn("/app/.venv/julia_env", dockerfile)
+        self.assertIn(
+            "PYTHON_JULIAPKG_PROJECT=/output/cache/julia_env",
+            dockerfile,
+        )
+        self.assertIn("/opt/pysr/julia_env_template", dockerfile)
         self.assertIn("libexpat1", dockerfile)
         self.assertIn(
             "PYSR_MODEL_ROOT=/opt/pysr/inputs/expanded_100/models",
@@ -109,7 +113,10 @@ class DockerDefinitionTests(unittest.TestCase):
         )
         self.assertIn("chmod -R a-w /opt/pysr/inputs/expanded_100", dockerfile)
         self.assertIn('VOLUME ["/output"]', dockerfile)
-        self.assertIn('ENTRYPOINT ["/app/.venv/bin/python"]', dockerfile)
+        self.assertIn(
+            'ENTRYPOINT ["/app/.venv/bin/python", "-m", "src.container_entrypoint"]',
+            dockerfile,
+        )
         self.assertIn('"${TARGETARCH}" != "amd64"', dockerfile)
 
     def test_build_context_excludes_science_and_runtime_artifacts(self) -> None:
