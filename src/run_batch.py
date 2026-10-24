@@ -930,7 +930,7 @@ def execute_batch(
         for model_id in models
     }
     for record in model_records.values():
-        record["held_out_test_authorized"] = held_out_test_authorized
+        record["held_out_test_authorized"] = False
 
     if context.manifest_path.exists():
         manifest = load_run_manifest(context=context)
@@ -968,8 +968,9 @@ def execute_batch(
         manifest.payload["requested_workers"] = workers
         manifest.payload["effective_workers"] = effective_workers
         manifest.payload["requested_phase"] = phase
-        for record in existing_models.values():
-            record["held_out_test_authorized"] = held_out_test_authorized
+        if phase != "test":
+            for record in existing_models.values():
+                record["held_out_test_authorized"] = False
         manifest.write()
         model_records = existing_models
     else:
@@ -1054,6 +1055,12 @@ def execute_batch(
                 if model_id not in runnable_models
             ],
         }
+
+        runnable_model_set = set(runnable_models)
+        for model_id in models:
+            model_records[model_id]["held_out_test_authorized"] = (
+                model_id in runnable_model_set
+            )
 
     effective_workers = min(workers, len(runnable_models))
     manifest.payload["effective_workers"] = effective_workers
@@ -1206,6 +1213,22 @@ def execute_batch(
                 else None
             ),
         )
+
+        if (
+            outcome.status == "resource_censored"
+            and outcome.failure_info is not None
+            and outcome.failure_info.last_stage
+            and outcome.failure_info.last_stage != phase
+        ):
+            manifest.update_stage(
+                model_id=outcome.model_id,
+                stage=outcome.failure_info.last_stage,
+                status="resource_censored",
+                worker_id=outcome.worker_id,
+                exit_code=outcome.exit_code,
+                failure_kind=outcome.failure_info.failure_kind,
+            )
+
         updates: dict[str, Any] = {
             "status": model_status,
             "exit_code": outcome.exit_code,

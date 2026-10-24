@@ -1050,6 +1050,16 @@ class BatchIsolationTests(unittest.TestCase):
         self.assertNotIn("pretest_checkpoint", payload["models"]["MODEL_B"])
         self.assertNotIn("pretest_checkpoint", payload["models"]["MODEL_C"])
 
+        # Resource censoring must close the active scientific stage.
+        self.assertEqual(
+            payload["models"]["MODEL_B"]["stages"]["candidates"]["status"],
+            "resource_censored",
+        )
+        self.assertIn(
+            "ended_at_utc",
+            payload["models"]["MODEL_B"]["stages"]["candidates"],
+        )
+
         test_models: list[str] = []
 
         def test_worker(model_id: str, worker_id: str) -> WorkerOutcome:
@@ -1100,6 +1110,18 @@ class BatchIsolationTests(unittest.TestCase):
         self.assertEqual(payload["models"]["MODEL_A"]["status"], "test_complete")
         self.assertEqual(payload["models"]["MODEL_B"]["status"], "resource_censored")
         self.assertEqual(payload["models"]["MODEL_C"]["status"], "failed")
+
+        # Held-out authorization is model-specific. Only the model that
+        # actually passed the eligibility gate may be marked authorized.
+        self.assertTrue(
+            payload["models"]["MODEL_A"]["held_out_test_authorized"]
+        )
+        self.assertFalse(
+            payload["models"]["MODEL_B"]["held_out_test_authorized"]
+        )
+        self.assertFalse(
+            payload["models"]["MODEL_C"]["held_out_test_authorized"]
+        )
 
         eligibility = payload["held_out_test_eligibility"]
 
