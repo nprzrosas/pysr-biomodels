@@ -35,7 +35,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_CACHE_DIR=/output/cache/uv \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHON_JULIAPKG_PROJECT=/app/.venv/julia_env \
+    PYTHON_JULIAPKG_PROJECT=/output/cache/julia_env \
     JULIA_DEPOT_PATH=/output/cache/julia:/opt/julia-depot \
     PYSR_MODEL_ROOT=/opt/pysr/inputs/expanded_100/models \
     PYSR_MODEL_TIME_METADATA_PATH=/opt/pysr/inputs/expanded_100/metadata/model_time.jsonl \
@@ -63,21 +63,18 @@ RUN chmod -R a-w /opt/pysr/inputs/expanded_100 \
     && .venv/bin/python -m src.container_smoke \
        --validate-cohort-manifest /opt/pysr/inputs/expanded_100/metadata/benchmark_ready_100.json
 
-# Initialize Julia and the PySR Julia environment once in the immutable image.
-RUN mkdir -p /opt/julia-depot /cache/julia \
-    && JULIA_DEPOT_PATH=/opt/julia-depot \
+# Initialize Julia and the PySR Julia environment once in immutable image paths.
+RUN mkdir -p /opt/julia-depot /opt/pysr/julia_env_template \
+    && PYTHON_JULIAPKG_PROJECT=/opt/pysr/julia_env_template \
+       JULIA_DEPOT_PATH=/opt/julia-depot \
        .venv/bin/python -c \
-       "import pysr; from juliacall import Main as jl; print(jl.seval('VERSION'))"
+       "import pysr; from juliacall import Main as jl; print(jl.seval('VERSION'))" \
+    && chmod -R a-w /opt/pysr/julia_env_template \
+    && chmod -R a+rX /opt/pysr/julia_env_template
 
 RUN useradd --create-home --uid 10001 appuser \
-    && mkdir -p \
-        /output/results \
-        /output/runs \
-        /output/cache/project \
-        /output/cache/uv \
-        /output/cache/julia \
+    && mkdir -p /output \
     && chown -R appuser:appuser \
-        /app/.venv/julia_env \
         /output \
         /home/appuser
 
@@ -85,5 +82,5 @@ USER appuser
 
 VOLUME ["/output"]
 
-ENTRYPOINT ["/app/.venv/bin/python"]
+ENTRYPOINT ["/app/.venv/bin/python", "-m", "src.container_entrypoint"]
 CMD ["-m", "src.container_smoke", "--resources-only"]
