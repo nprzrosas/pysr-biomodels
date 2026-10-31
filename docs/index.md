@@ -1,5 +1,7 @@
 ---
+layout: default
 title: PySR-BioModels
+description: Evaluating symbolic regression for biological network dynamics
 ---
 
 # PySR-BioModels

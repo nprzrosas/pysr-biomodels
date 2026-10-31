@@ -1,3 +1,9 @@
+---
+layout: default
+title: GSoC 2026 Final Report
+description: Evaluating and Improving Symbolic Regression Methods for Biological Network Dynamics
+---
+
 # Evaluating and Improving Symbolic Regression Methods for Biological Network Dynamics
 
 | GSoC metadata | Details |

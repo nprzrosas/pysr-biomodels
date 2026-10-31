@@ -1,0 +1,7 @@
+title: PySR-BioModels
+description: Evaluating symbolic regression for biological network dynamics
+theme: jekyll-theme-cayman
+
+markdown: kramdown
+kramdown:
+  math_engine: mathjax
