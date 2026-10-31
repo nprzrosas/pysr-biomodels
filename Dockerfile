@@ -10,7 +10,7 @@ ARG VCS_REF=unknown
 LABEL org.opencontainers.image.title="PySR-only benchmark"
 LABEL org.opencontainers.image.description="Reproducible ODE inference runtime"
 LABEL org.opencontainers.image.revision="${VCS_REF}"
-LABEL org.opencontainers.image.source="https://github.com/nprzrosas/pysr_only"
+LABEL org.opencontainers.image.source="https://github.com/nprzrosas/pysr-biomodels"
 
 # libroadrunner 2.8.0 has no Linux arm64 wheel in the frozen dependency lock.
 RUN if [ "${TARGETARCH}" != "amd64" ]; then \
