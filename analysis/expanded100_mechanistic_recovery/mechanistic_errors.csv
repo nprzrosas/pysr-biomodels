@@ -1,0 +1,38 @@
+model_id,dataset_name,state_id,failure_type,message
+BIOMD0000000055,train_04,cLm,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000055,train_04,cYm,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000055,train_08,cYm,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000055,train_16,cLm,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000055,train_16,cYm,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000055,train_32,cLm,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000055,train_32,cTn,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000055,train_32,cYm,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000213,,,ground_truth_extraction_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 60 seconds.
+BIOMD0000000218,,,ground_truth_extraction_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 60 seconds.
+BIOMD0000000413,,,ground_truth_extraction_failed,"SympifyError: Sympify of expression 'could not parse 'lambda * VENUS'' failed, because of exception being raised:
+TokenError: Starred arguments in lambda not supported"
+BIOMD0000000476,train_04,cLm,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000476,train_04,cTc,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000476,train_04,cTn,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000476,train_04,cYm,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000476,train_04,cPn,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000476,train_04,cAm,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000476,train_08,cLm,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000476,train_08,cTc,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000476,train_08,cTn,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000476,train_08,cYm,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000476,train_08,cPn,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000476,train_08,cAm,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000476,train_16,cLm,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000476,train_16,cTc,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000476,train_16,cTn,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000476,train_16,cYm,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000476,train_16,cPn,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000476,train_16,cAm,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000726,,,ground_truth_extraction_failed,"SympifyError: Sympify of expression 'could not parse 'compartment * lambda * R_d'' failed, because of exception being raised:
+SyntaxError: invalid syntax (<string>, line 1)"
+BIOMD0000000762,train_08,T,algebraic_evaluation_failed,MechanisticEvaluationTimeoutError: Symbolic evaluation exceeded 10 seconds.
+BIOMD0000000840,,,ground_truth_extraction_failed,"SympifyError: Sympify of expression 'could not parse 'compartment * Function_for_New_Vicodin_Prescriptions(lambda, rho, A)'' failed, because of exception being raised:
+SyntaxError: invalid syntax (<string>, line 1)"
+BIOMD0000000887,,,ground_truth_extraction_failed,"SympifyError: Sympify of expression 'could not parse 'compartment * Constant_flux__irreversible(lambda)'' failed, because of exception being raised:
+SyntaxError: invalid syntax (<string>, line 1)"

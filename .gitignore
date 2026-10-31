@@ -11,6 +11,7 @@ wheels/
 
 # Scientific outputs
 results/
+reports/
 
 # Batch orchestration and local caches
 runs/

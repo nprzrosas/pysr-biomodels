@@ -1,0 +1,9 @@
+model_id,dataset,selection_method,system_id,trajectory_id,macro_nrmse,rhs_evaluations
+BIOMD0000000156,train_32,coordinate_search,1,test_000,3.980893048059103e-06,697
+BIOMD0000000156,train_32,coordinate_search,1,test_001,3.0023904614839136e-06,741
+BIOMD0000000156,train_32,coordinate_search,1,test_002,4.059831739136263e-06,749
+BIOMD0000000156,train_32,coordinate_search,1,test_003,3.763991365656924e-06,731
+BIOMD0000000156,train_32,coordinate_search,1,test_004,5.746812569822348e-06,785
+BIOMD0000000156,train_32,coordinate_search,1,test_005,2.1291798608567633e-06,699
+BIOMD0000000156,train_32,coordinate_search,1,test_006,1.599493489207009e-06,715
+BIOMD0000000156,train_32,coordinate_search,1,test_007,4.950154157621241e-06,815

@@ -1,0 +1,7 @@
+category,model_count,explanation,counts_overlap
+nonpositive_initial_value,224,"At least one floating state has an initial value <= 0, incompatible with the current log-space experimental design.",True
+nonfinite_initial_value,0,At least one floating state has a non-finite initial value.,True
+events,14,The SBML model contains one or more events.,True
+rate_rules,12,The SBML model contains one or more rate rules.,True
+assignment_rules,59,The SBML model contains one or more assignment rules.,True
+algebraic_rules,0,The SBML model contains one or more algebraic rules.,True

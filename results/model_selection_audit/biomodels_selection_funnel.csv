@@ -1,0 +1,7 @@
+stage_order,stage,models_entering,models_retained,models_excluded,criterion
+1,Curated source corpus,1075,1075,0,Starting curated BioModels corpus.
+2,Variable-parameter filter,1075,497,578,"Retain models with zero SBML parameter elements declared constant=""false""."
+3,Canonical filename discovery,497,326,171,pysr_only discovers only <MODEL_ID>/<MODEL_ID>_url.xml.
+4,Model loading and preflight,326,303,23,Model specification must load successfully.
+5,Benchmark compatibility,303,66,237,"Floating states must have finite positive initial values; events, rate rules, assignment rules, and algebraic rules are unsupported."
+6,Simulation-time metadata,66,43,23,A curated simulation time is required for standardized trajectory generation.
