@@ -548,9 +548,40 @@ These RHS-level analyses use only the 66-model compatible cohort. Across those m
 
 Numerical equivalence is substantially more common than exact algebraic equivalence. Across all four training-set sizes, 140 of 991 evaluated RHSs (14.1%) satisfy the benchmark's numerical-equivalence criterion. As defined in Section 9, this means that the inferred and reference RHSs produce sufficiently similar derivative values at the fixed set of sampled state-space points under the specified numerical tolerances. It is a finite numerical diagnostic and does not imply that the two symbolic expressions are mathematically identical.
 
-Exact algebraic recovery is much rarer. Only 2 of 991 evaluated RHSs (0.2%) satisfy the exact symbolic criterion. Moreover, both exact matches are trivial zero equations from BIOMD0000000941: the reference RHS is `0` and the inferred RHS is also `0`. No nonzero RHS achieves exact algebraic equivalence, and no complete coupled ODE system is exactly equivalent to its reference system.
+Exact algebraic recovery is much rarer. Only 2 of 991 evaluated RHSs (0.2%) satisfy the exact symbolic criterion. Both occur for BIOMD0000000941 in the four-trajectory training condition (`train_04`) and correspond to states whose reference RHS is identically zero. For `E2F_total`, the reference and inferred equations are
 
-The contrast between the two criteria is important. An inferred expression can produce nearly the same derivative values over the tested state-space points while differing algebraically from the reference equation. Numerical agreement without exact symbolic recovery can arise, for example, from small coefficient differences, alternative functional forms, or agreement restricted to the sampled region. Conversely, the exact criterion deliberately requires symbolic identity after the canonical simplification procedure described in Section 9; numerical closeness alone cannot satisfy it.
+$$
+\text{Reference:}\qquad
+\frac{d\,E2F_{\mathrm{total}}}{dt}=0,
+\qquad
+\text{PySR:}\qquad
+\frac{d\,E2F_{\mathrm{total}}}{dt}=0.
+$$
+
+The same occurs for `Cdc20_total`:
+
+$$
+\text{Reference:}\qquad
+\frac{d\,Cdc20_{\mathrm{total}}}{dt}=0,
+\qquad
+\text{PySR:}\qquad
+\frac{d\,Cdc20_{\mathrm{total}}}{dt}=0.
+$$
+
+In both cases, the symbolic difference is exactly zero after canonical simplification. These matches are therefore exact, but they are also trivial zero equations: PySR did not need to reconstruct a nonzero kinetic, regulatory, or interaction term. No nonzero RHS achieves exact algebraic equivalence, and no complete coupled ODE system is exactly equivalent to its reference system.
+
+The contrast between the two criteria is important. The same model provides a simple example. For `E2F_total` with eight training trajectories (`train_08`), the reference RHS remains zero, whereas PySR infers
+
+$$
+\text{Reference:}\qquad
+\frac{d\,E2F_{\mathrm{total}}}{dt}=0,
+\qquad
+\text{PySR:}\qquad
+\frac{d\,E2F_{\mathrm{total}}}{dt}
+=3.62222648906321\times10^{-23}.
+$$
+
+This RHS satisfies the numerical-equivalence criterion but not the exact algebraic criterion. The inferred value is extremely close to zero under the benchmark's numerical tolerances, but it is not symbolically identical to zero. More generally, numerical agreement without exact symbolic recovery can arise from small coefficient differences, alternative functional forms, or agreement restricted to the sampled state-space region. Conversely, the exact criterion deliberately requires symbolic identity after the canonical simplification procedure described in Section 9; numerical closeness alone cannot satisfy it.
 
 These results also place the structural metrics from Section 12 in context. The substantially higher state-dependency F1 scores show that PySR often identifies which dynamic variables participate in an RHS, while the much lower RHS-level rates of numerical and exact equivalence show that recovering those dependencies does not imply recovery of the full governing equation. The benchmark therefore supports a graded interpretation of recovery: identifying relevant states is more common than reproducing the complete RHS numerically, and exact recovery of a nontrivial reference RHS is not observed in this experiment.
 
