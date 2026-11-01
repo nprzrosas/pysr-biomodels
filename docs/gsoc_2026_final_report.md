@@ -30,11 +30,11 @@ These results demonstrate an important distinction for biological equation disco
 
 Mathematical models are widely used to describe how interacting biological components change over time. Examples include signaling networks, metabolic pathways, gene-regulatory systems, and other biochemical reaction networks. A deterministic model with \(J\) dynamic states can be represented as
 
-\[
+$$
 \frac{d\mathbf{x}}{dt}
 =
 \mathbf{f}(\mathbf{x}, \boldsymbol{\theta}),
-\]
+$$
 
 where \(\mathbf{x}\) contains the dynamic state variables, \(\boldsymbol{\theta}\) contains model parameters, and \(\mathbf{f}\) specifies the mechanisms governing their rates of change.
 
@@ -52,29 +52,29 @@ BioModels provides a useful environment for studying this problem because it is 
 
 For an ODE system,
 
-\[
+$$
 \frac{d\mathbf{x}}{dt}
 =
 \mathbf{f}(\mathbf{x}),
-\]
+$$
 
 the equation-discovery problem can be expressed as learning an approximation
 
-\[
+$$
 \frac{d\mathbf{x}}{dt}
 \approx
 \hat{\mathbf{f}}(\mathbf{x}),
-\]
+$$
 
 where \(\hat{\mathbf{f}}\) is inferred from observations rather than specified beforehand.
 
 In this benchmark, each dynamic state is treated as a separate symbolic-regression target during candidate generation. For state \(x_j\), PySR searches for expressions of the form
 
-\[
+$$
 \frac{dx_j}{dt}
 \approx
 \hat{f}_j(x_1,x_2,\ldots,x_J).
-\]
+$$
 
 The individual state equations cannot ultimately be judged in isolation because they interact when integrated as a coupled ODE system. The workflow therefore retains multiple candidate expressions for each right-hand side and subsequently evaluates combinations of those candidates on validation trajectories.
 
@@ -237,24 +237,24 @@ The final framework reports complementary dimensions. None substitutes for all t
 
 Reference and inferred systems are integrated with SciPy's `solve_ivp` using LSODA, relative tolerance `1e-7`, absolute tolerance `1e-9`, and at most 8,000 RHS evaluations per trajectory. For state \(j\) in trajectory \(k\), sampled at \(T\) time points, the state-specific trajectory RMSE is
 
-\[
+$$
 \operatorname{RMSE}_{k,j} =
 \sqrt{\frac{1}{T}\sum_{t=1}^{T}\left(\hat{x}_{k,j}(t)-x_{k,j}(t)\right)^2}.
-\]
+$$
 
 The normalization scale is computed from training data only,
 
-\[
+$$
 s_j = \max_{r\in\mathcal{D}_{\mathrm{train}}}|x_{r,j}|,
 \qquad
 \operatorname{NRMSE}_{k,j} = \frac{\operatorname{RMSE}_{k,j}}{s_j}.
-\]
+$$
 
 With \(J\) dynamic states, the trajectory macro-NRMSE is the unweighted state mean,
 
-\[
+$$
 M_k = \frac{1}{J}\sum_{j=1}^{J}\operatorname{NRMSE}_{k,j}.
-\]
+$$
 
 For either validation or held-out testing, the system macro-NRMSE is the unweighted mean over its \(K=8\) trajectories, \(K^{-1}\sum_{k=1}^{K}M_k\). The aggregate is finite only when all eight trajectories integrate successfully; otherwise the implementation records failed status and an infinite system macro-NRMSE.
 
@@ -262,11 +262,11 @@ For either validation or held-out testing, the system macro-NRMSE is the unweigh
 
 For each RHS, the evaluator compares the set of dynamic-state symbols in the inferred expression with the ground-truth set. Given true-positive, false-positive, and false-negative counts,
 
-\[
+$$
 P=\frac{TP}{TP+FP},\qquad
 R=\frac{TP}{TP+FN},\qquad
 F_1=\frac{2PR}{P+R},
-\]
+$$
 
 where the implementation evaluates F1 using the equivalent count expression \(2TP/(2TP+FP+FN)\). Precision is undefined (`NaN`) when no dependencies are inferred, and recall is undefined when the ground-truth set is empty. If both sets are empty, F1 is defined as 1; if only one is empty, F1 is 0. Model-level dependency F1 macro-averages RHS scores. A high score says that the same states appear; it does not establish the same powers, interactions, coefficients, or rational form.
 
