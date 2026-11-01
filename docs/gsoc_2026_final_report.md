@@ -606,21 +606,35 @@ These cases illustrate separations among predictive, component-level, numerical,
 
 ### BIOMD0000000156
 
-This three-state model has dependency F1, numerator monomial F1, interaction F1, and rational-structure accuracy equal to 1 at every training size. Its held-out macro-NRMSE ranges from approximately $3.65\times10^{-6}$ to $3.78\times10^{-6}$. At 32 training trajectories, all three RHSs pass the numerical-equivalence diagnostic, yet none is exactly algebraically equivalent.
+BIOMD0000000156 provides the clearest example of strong predictive and mechanistic recovery without exact algebraic identity. This three-state model has dependency F1, numerator monomial F1, interaction F1, and rational-structure accuracy equal to 1 at every training-set size. Its held-out macro-NRMSE ranges from approximately $3.65 \times 10^{-6}$ to $3.78 \times 10^{-6}$, indicating extremely close agreement between the inferred and reference trajectories.
 
-The case demonstrates excellent prediction and recovery of the evaluated mechanistic components without exact symbolic identity. Coefficient differences or algebraic details can prevent exact equality even when trajectories and sampled RHS values agree closely.
+At 32 training trajectories, all three inferred RHSs also pass the numerical-equivalence diagnostic, but none passes the exact algebraic-equivalence test. The inferred equation for $x$ illustrates why. The reference RHS is
+
+$$
+\frac{dx}{dt} = -3.7xy + 2.0x,
+$$
+
+whereas PySR selects
+
+$$
+\frac{dx}{dt} = -3.70000024213422xy + 2.00000014281662x.
+$$
+
+The inferred equation therefore contains the same state variables, monomials, and multiplicative interaction as the reference equation, while its fitted coefficients differ only slightly from the reference values. Under the deliberately strict exact-equivalence criterion, however, these coefficient differences prevent the symbolic difference between the two expressions from simplifying to zero. BIOMD0000000156 therefore demonstrates that excellent held-out prediction, complete recovery of the structural components measured here, and numerical RHS agreement can all occur without exact symbolic equality.
 
 ### BIOMD0000000319
 
-Dependency F1 is 1 at all four training sizes, but numerator monomial F1 ranges only from approximately 0.30 to 0.48, and rational-structure accuracy is either 0 or 1/3. Held-out macro-NRMSE ranges from approximately 0.0562 to 0.0737.
+BIOMD0000000319 illustrates a different failure mode. Dependency F1 is 1 at all four training-set sizes, meaning that the inferred equations identify the correct dynamic state variables. However, numerator monomial F1 ranges only from approximately 0.30 to 0.48, interaction F1 ranges from approximately 0.67 to 1.00, and rational-structure accuracy is either 0 or 1/3. None of the three RHSs passes the numerical- or exact-equivalence test at any training-set size.
 
-This case shows that selecting the correct state variables does not determine how they combine. Dependency recovery should not be presented as functional-form or equation recovery.
+Despite these structural discrepancies, all eight held-out trajectories integrate successfully in every training condition, with held-out macro-NRMSE ranging from approximately 0.0562 to 0.0737. This case shows why dependency recovery alone should not be interpreted as equation recovery: PySR can identify which state variables participate while still reconstructing the mathematical terms and their organization incorrectly.
 
 ### BIOMD0000000728
 
-All held-out integrations finish, but macro-NRMSE ranges from approximately 228 to 1,190. Across training sizes, dependency F1 is 1/3, numerator monomial F1 is 1/6, interaction F1 is 1/2, rational-structure accuracy is 1/2, and neither of the two RHSs passes the numerical or exact equivalence checks.
+BIOMD0000000728 demonstrates why successful numerical integration is not itself evidence of predictive or mechanistic accuracy. All eight held-out trajectories integrate successfully at every training-set size, yet held-out macro-NRMSE ranges from approximately 228 to 1,190. These errors indicate very poor agreement with the reference trajectories despite the absence of integration failures.
 
-This case makes the integration distinction explicit: a numerically integrable selected system can still be a very poor predictor and a poor mechanistic match.
+The structural metrics are also consistently weak across all four training-set sizes: dependency F1 is 1/3, numerator monomial F1 is 1/6, interaction F1 is 1/2, and rational-structure accuracy is 1/2. Neither of the model's two RHSs passes the numerical- or exact-equivalence diagnostic at any training-set size.
+
+Together, these results make the distinction between numerical robustness and scientific accuracy explicit. An inferred ODE system may remain mathematically integrable over all held-out trajectories while reproducing neither the reference dynamics nor the underlying equation structure.
 
 ## 15. Discussion
 
