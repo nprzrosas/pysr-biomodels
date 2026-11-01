@@ -427,21 +427,33 @@ This separation is important because an inferred system can achieve very low hel
 
 ## 10. Expanded-100 execution outcomes
 
-Of 100 benchmark-ready models, 75 completed the workflow through held-out testing and 25 did not. The 75 completed models produce four training-size conditions each, for 300 final conditions.
+The Expanded-100 benchmark contains 100 BioModels that were benchmark-ready. Being *benchmark-ready* means that a model had a resolved SBML input, valid simulation metadata, and passed the benchmark preflight checks. It does **not** mean that symbolic regression was guaranteed to finish successfully or recover the original equations.
 
-| Execution outcome | Models | Evidence-supported interpretation |
+Of these 100 models, 75 completed the full workflow through held-out testing, while 25 did not complete under the imposed computational constraints. Each completed model was evaluated using four nested training-set sizes—4, 8, 16, and 32 trajectories—so the 75 completed models produced
+
+$$
+75 \times 4 = 300
+$$
+
+final model-by-training-size conditions for predictive evaluation.
+
+| Execution outcome | Models | Interpretation |
 |---|---:|---|
-| Workflow complete through held-out testing | 75 | Included in final analysis |
-| Resource-censored: timeout | 12 | Execution limit, not a recovery result |
-| Resource-censored: memory limit | 2 | Execution limit, not a recovery result |
-| Other incomplete candidate-stage worker exits | 11 | Retained manifest lacks enough detail for finer classification |
-| Total benchmark-ready | 100 | Passed readiness checks |
+| Workflow complete through held-out testing | 75 | Reached final held-out evaluation and was included in the main predictive analysis |
+| Timeout-censored | 12 | Execution stopped because the configured time limit was reached |
+| Memory-censored | 2 | Execution stopped because the configured memory limit was reached |
+| Other incomplete candidate-stage worker exits | 11 | Candidate-generation worker exited unsuccessfully, but the retained evidence does not support a more specific cause |
+| **Total benchmark-ready** | **100** | Passed the requirements needed to enter the benchmark |
 
-The 25 incomplete models should not be grouped under a single PySR failure label. Fourteen are directly identified as resource-censored. For the other 11, the retained manifest records nonzero worker exits during the candidate stage but does not support the stronger claim that every exit had the same numerical cause.
+Here, *resource-censored* means that execution was stopped by a predefined computational limit rather than producing a scientific recovery result. The 12 timeout-censored and 2 memory-censored models therefore provide information about the computational limits of the benchmark implementation, not about whether their underlying biological equations were recoverable.
+
+The remaining 11 incomplete models require similar caution. Their retained manifests record nonzero worker exits during candidate generation, indicating that those processes did not finish successfully. However, the retained evidence is insufficient to determine a common underlying cause, so these runs are not classified more specifically.
+
+Most importantly, **workflow completion is not the same as equation recovery**. A completed model is one for which the pipeline reached held-out evaluation. Whether the inferred equations accurately reproduce unseen trajectories, recover mechanistic structure, or match the original equations is evaluated separately in the following sections.
 
 ![Expanded-100 execution outcomes](figures/03_expanded100_execution_outcomes.svg)
 
-*Figure 3. Execution outcomes for the 100 benchmark-ready models. The 25 incomplete runs comprise 12 timeout-censored runs, 2 memory-censored runs, and 11 candidate-stage worker exits whose cause cannot be classified more finely from retained evidence.*
+*Figure 3. Execution outcomes for the 100 benchmark-ready models. Seventy-five models completed the workflow through held-out testing. The 25 incomplete runs comprise 12 timeout-censored runs, 2 memory-censored runs, and 11 candidate-stage worker exits whose causes cannot be classified more finely from the retained evidence.*
 
 ## 11. Predictive performance
 
