@@ -512,6 +512,8 @@ The resulting primary cohort contains **66 structurally compatible models**. Eva
 
 **300 total conditions → 276 with ground truth available → 264 structurally compatible conditions (66 models × 4 training-set sizes).**
 
+The following analysis asks how much of the reference equation structure PySR recovers within this 66-model cohort, and whether that recovery changes as more training trajectories are provided. Rather than treating mechanistic recovery as a single yes-or-no outcome, the analysis separates it into increasingly detailed structural components. **Dependency F1** measures whether the correct dynamic state variables appear in each inferred RHS; **numerator monomial F1** evaluates whether the corresponding mathematical terms are recovered; **interaction F1** focuses on multiplicative interactions between state variables; and **rational-structure accuracy** tests whether the inferred and reference equations agree on the presence of state-dependent denominator structure. The table reports the mean model-level score for each metric at each training-set size.
+
 | Training trajectories | Mean dependency F1 | Mean numerator monomial F1 | Mean interaction F1 | Rational-structure accuracy |
 |---:|---:|---:|---:|---:|
 | 4 | 0.8015 | 0.5538 | 0.5666 | 0.6553 |
