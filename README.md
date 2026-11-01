@@ -286,9 +286,9 @@ self-contained Expanded-100 execution, use the reviewed Docker command in
 
 ## GSoC 2026
 
-- **Contributor:** Norma Pérez Rosas
+- **Contributor:** Norma C Pérez Rosas
 - **Organization:** National Resource for Network Biology (NRNB)
-- **Mentors:** Augustin Luna, Eran Agmon, and Mark Kittisopikul
+- **Mentors:** Augustin Luna, Eran Agmon, Mark Kittisopikul, and Matthias König
 
 The final report documents completed work, evidence classifications,
 limitations, and future directions in greater detail.
