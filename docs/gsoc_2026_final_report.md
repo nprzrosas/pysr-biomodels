@@ -135,7 +135,7 @@ A secondary engineering objective is to make these questions reproducible. The w
 
 ### Model retrieval
 
-At the time of corpus acquisition, BioModels listed 1,096 manually curated models. The local corpus assembled for this project contains 1,075 model directories, which served as the starting point for benchmark screening. The available provenance records do not establish why the remaining 21 curated models were not represented in the local corpus; consequently, they are not assigned to any downstream exclusion category in the screening funnel.
+At the time of corpus acquisition, BioModels listed 1,096 manually curated models. The retained local corpus contains 1,075 model directories, which form the auditable starting point for the benchmark screening reported here. The disposition of the remaining 21 models could not be reconstructed from the retained acquisition records.
 
 BioModels identifiers remained standardized `BIOMD...` identifiers. The discovery problem concerned the filenames of valid SBML documents inside local model directories, not identifier heterogeneity.
 
