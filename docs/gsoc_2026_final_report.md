@@ -660,80 +660,153 @@ Overall, the results support a cautious interpretation of symbolic regression fo
 
 ## 16. Software engineering and reproducibility
 
-The workflow treats each scientific stage as a traceable artifact-producing step. Run manifests record the model cohort, frozen settings, SBML content hashes, simulation metadata, stage status, and selected-system identities. Checkpoints and artifact hashes are checked before resumption, reducing the risk of silently combining outputs generated under different settings.
+A benchmark of symbolic-regression methods is not reproducible only because the inference code is available. It must also be possible to determine which biological models were analyzed, which simulation and search settings were used, which stages completed, and which artifacts belong to the same experimental run. The software developed for this project therefore treats provenance and execution state as part of the scientific output.
 
-Batch execution uses per-model/variant locks to avoid duplicate concurrent work. It records process resource telemetry and distinguishes resource censoring from completed scientific outcomes. Test execution requires frozen selection artifacts and validates them before constructing held-out data. These controls make accidental test leakage and partial-run ambiguity easier to detect.
+### Run manifests and provenance
 
-The final combined table joins workflow, validation, held-out, and mechanistic results at model and training-size level. Separate inventory and error files preserve why a result is unavailable or incomparable. Reproducibility here means that inputs, configuration, provenance, and stage boundaries are recorded and deterministic components are rerunnable. It does not imply bitwise-identical floating-point or symbolic-search results across all machines and future dependency stacks.
+Each benchmark run is represented by a manifest that records the requested model cohort, frozen experimental settings, SBML content hashes, simulation metadata, stage status, and the identities of selected equation systems. These records provide a link between an aggregate result in the final analysis and the model-specific computations that produced it.
+
+Content hashes are particularly important because filenames alone do not establish that two runs used identical biological inputs. Recording the SBML hash makes changes to model content detectable even if the external model identifier or local filename remains unchanged.
+
+### Safe resumption and concurrent execution
+
+Symbolic-regression searches can be computationally expensive, and large benchmark runs may be interrupted by time limits, memory limits, machine restarts, or individual worker failures. The workflow therefore supports resumption from previously generated artifacts rather than requiring every model to restart from the beginning.
+
+Before an existing artifact is reused, checkpoint information and artifact hashes are validated against the current run context. This reduces the risk of silently combining results produced with different inputs or experimental settings. Cross-run model/variant locks also prevent two concurrent processes from unintentionally performing and writing the same work.
+
+Resource telemetry is recorded separately from scientific results. This distinction was important in the Expanded-100 benchmark: an incomplete model caused by a timeout, memory limit, or unresolved worker exit is an execution outcome, not evidence that symbolic regression scientifically failed to recover that model.
+
+### Protecting the held-out evaluation
+
+The held-out test set is intentionally separated from model selection. Candidate generation and system selection operate without access to the held-out trajectories. Test execution requires an already frozen selected-system artifact, validates that artifact, and only then constructs the held-out data used for final predictive evaluation.
+
+This design turns the train/validation/test boundary into a software constraint rather than relying only on researcher convention. It also makes the boundary auditable: the selected equation system exists before the held-out trajectories used to evaluate it are materialized.
+
+### Analysis artifacts
+
+The final analysis joins workflow status, validation performance, held-out performance, and mechanistic-recovery results at the model and training-set-size level. Separate inventory and error records preserve why a result is missing, unavailable, or not mechanistically comparable. This is necessary because different denominators arise for different reasons: some models do not complete execution, while others complete prediction but cannot enter a particular structural comparison.
+
+These machine-readable intermediate artifacts also make it possible to trace aggregate figures and tables back to individual models rather than treating the final report as the only record of the experiment.
+
+### What reproducibility means here
+
+In this project, reproducibility means that the benchmark inputs, configuration, software environment, provenance, execution status, and stage boundaries are explicitly recorded, and that deterministic components can be rerun from those records. The Docker workflow described in the next section further packages the software dependencies and benchmark inputs needed to reproduce the experiment on another machine.
+
+This does not imply that every symbolic-search or floating-point result will be bitwise identical across all hardware platforms or future dependency stacks. Numerical libraries, processor architectures, and stochastic or implementation-dependent behavior can affect low-level results. The intended reproducibility target is therefore the documented scientific procedure and its numerical conclusions, rather than universal byte-for-byte identity of every generated artifact.
 
 ## 17. Docker and reproducible execution
 
-The Docker image contains benchmark source, the locked Python environment, an initialized PySR/Julia environment, and packaged expanded-100 SBML and simulation-metadata inputs. Runtime execution therefore needs no live BioModels download. Outputs and writable caches use the `/output` mount.
+The benchmark can also be executed through Docker so that a user does not need to reproduce the complete Python, Julia, PySR, and system-level environment manually. The purpose of the container is to package the software environment and benchmark inputs together while keeping generated results outside the image.
 
-The container runs as non-root user ID 10001. Its target is `linux/amd64`, reflecting the available RoadRunner wheel and tested CPU-oriented workflow; no established GPU path is documented. The Python base image and major build inputs are digest/version pinned, and Python dependencies come from the lock file. Building still requires network access, and the Dockerfile does not completely pin the Julia runtime version. The container improves environmental reproducibility but does not establish bitwise reproducibility.
+### What is included in the image
 
-No public registry image is documented. The supported work product is the Dockerfile and bundled inputs, built locally according to the Docker guide.
+The Docker image contains the benchmark source code, the locked Python environment, an initialized PySR/Julia environment, and the packaged Expanded-100 SBML and simulation-metadata inputs. Because these biological inputs are already included, runtime execution does not require downloading models from BioModels or retrieving simulation metadata from an external service.
+
+The image is therefore an execution environment rather than an archive of benchmark results. Generated results and writable runtime state are placed under `/output`, which is intended to be connected to a directory on the host computer.
+
+### Host-mounted output
+
+The Docker workflow uses a bind mount to connect a directory on the host computer to `/output` inside the container. Scientific results, run manifests, logs, telemetry, and mutable caches are stored below this boundary and therefore persist on the host when the container is removed. The host directory must already exist and be writable by container user ID 10001, or provide equivalent permissions through an ACL.
+
+This separation means that the Docker image itself does not contain previously generated benchmark results. The same image can be reused while each user chooses where the resulting artifacts are stored.
+
+### Portability and environment constraints
+
+The container runs as non-root user ID 10001 and targets `linux/amd64`. This architecture is currently required because the frozen dependency lock uses `libroadrunner==2.8.0`, for which no Linux ARM64 wheel is available in the benchmark environment. A separate GPU execution path is not established by the current Docker workflow.
+
+The Python base image and major build inputs are pinned by image digest or explicit version, and Python dependencies are installed from the project's lock file. Building the image still requires network access to obtain those dependencies. Runtime execution, however, does not require a live BioModels download because the benchmark inputs are already packaged in the image.
+
+The Julia runtime is initialized as part of the image build, but its exact version is not completely frozen by the current Dockerfile. Docker therefore substantially reduces environmental variation without guaranteeing byte-for-byte identical outputs across every machine. The reproducibility target is the same packaged benchmark procedure, dependencies, inputs, and numerical workflow.
+
+### Distribution
+
+No public container-registry image is currently documented as part of this work product. The reproducible artifact is therefore the Dockerfile together with the bundled benchmark inputs and build instructions in the repository. The repository's [Docker deployment guide](https://github.com/nprzrosas/pysr-biomodels/blob/main/DOCKER.md) provides the verified build command, input validation, smoke tests, resource controls, and Expanded-100 execution procedure. A user builds the image locally and runs it with a writable host directory mounted at `/output`.
 
 ![Docker build inputs, built container image, runtime, and output boundary](figures/07_docker_reproducibility_architecture.svg)
 
-*Figure 7. Verified Docker build and runtime boundaries. The expanded input bundle is included in the amd64 image, mutable state is written under the host-mounted `/output` boundary, and no live BioModels download is required at runtime. The design improves environmental reproducibility without claiming bitwise reproducibility.*
+*Figure 7. Docker reproducibility architecture. Source code, locked Python dependencies, the PySR/Julia environment, and the Expanded-100 benchmark inputs are packaged during image construction. At runtime, generated artifacts cross the container boundary through the host-mounted `/output` directory. No live BioModels download is required during benchmark execution. The container reduces environmental variation but does not claim bitwise reproducibility.*
 
 ## 18. Limitations
 
+The benchmark was designed to isolate equation reconstruction under a controlled simulation protocol rather than to reproduce every difficulty encountered with experimental biological data. Its results should therefore be interpreted within the following methodological, model-scope, computational, and recovery-analysis limitations.
+
 ### Benchmark design
 
-- The benchmark supplies exact, noiseless simulator derivatives; it does not evaluate derivative estimation, measurement noise, or sparse sampling.
-- It tests one deterministic seed and one PySR configuration with a fixed search budget. Hyperparameter and stochastic variability remain unmeasured.
-- Parameters stay fixed while initial states vary within a standardized 0.1--10-fold range.
-- Each trajectory has 101 time points over one model-specific horizon. Results may change under different horizons, grids, or perturbation ranges.
-- The feature space contains dynamic states only. Explicit time and parameter dependence cannot be represented.
-- The protocol standardizes simulations instead of replaying all curated SED-ML experiments.
-- The retained repository does not establish the extent of manual review for every automatically extracted simulation horizon.
+- The primary benchmark supplies exact, noiseless derivatives obtained directly from the SBML simulator. It therefore evaluates symbolic regression under an oracle-derivative setting and does not measure the additional difficulty introduced by estimating derivatives from sampled trajectories, measurement noise, or sparse observations.
+- The reported Expanded-100 experiment uses one deterministic PySR seed and one fixed PySR configuration with a fixed search budget. Hyperparameter sensitivity and variability across independent symbolic-regression searches were not measured.
+- Model parameters remain fixed at their nominal SBML values while initial states are perturbed. Candidate initial conditions are generated over a standardized 0.1--10-fold range relative to the nominal initial state.
+- Each simulated trajectory contains 101 time points from time zero to one model-specific horizon. Different simulation horizons, temporal resolutions, or perturbation ranges could expose different dynamical regimes and change inference difficulty.
+- The PySR feature space contains dynamic state variables only. Equations requiring explicit time, varying parameters, or other exogenous inputs cannot be represented by the current inference design.
+- The benchmark uses a project-defined standardized simulation protocol rather than replaying all experimental conditions encoded in BioModels SED-ML files. The results therefore characterize recovery under this benchmark protocol, not recovery of every curated experiment associated with each BioModels entry.
+- Model-specific simulation horizons were obtained from the project's curated-image time-extraction workflow. The retained acquisition records do not establish the extent of manual review applied to every automatically extracted horizon.
 
 ### Model scope
 
-- The corpus is restricted to deterministic ODE models that pass current preflight and compatibility requirements.
-- Events, unsupported rules, nonfinite or nonpositive nominal dynamic states, and other out-of-scope constructs can exclude a model.
-- Explicit-time models are predictively evaluable but not directly comparable to state-only mechanistic ground truth.
-- These are benchmark-scope decisions, not judgments about the scientific validity of excluded BioModels entries.
+- The Expanded-100 cohort is a benchmark-compatible subset of the locally retained curated BioModels corpus, not a representative sample of all biological ODE models or all BioModels entries.
+- The benchmark focuses on deterministic ODE systems that satisfy the current simulation and inference requirements. Events, unsupported assignment, rate, or algebraic rules, nonfinite or nonpositive nominal dynamic states, and other incompatible constructs can prevent a model from entering the benchmark.
+- Earlier corpus filtering also excluded models with variable-parameter behavior that was outside the standardized inference protocol.
+- Explicit-time models can still be evaluated for predictive behavior when execution is supported, but their reference equations are not directly comparable to a symbolic-regression feature space containing only dynamic states.
+- These exclusions indicate incompatibility with the current benchmark protocol. They do not imply that the excluded models are scientifically invalid or intrinsically unsuitable for symbolic regression under a different formulation.
 
 ### Computational limitations
 
-- Fourteen benchmark-ready runs were resource-censored, and 11 additional runs exited during candidate generation without enough retained detail for finer causal classification.
-- The deterministic coordinate selector is single-start and not globally optimal.
-- The Docker workflow is currently amd64- and CPU-oriented.
-- The expanded-run manifest does not separately log the imported PySR package version, although project configuration resolves version 1.5.9.
+- Of the 100 benchmark-ready models launched in the Expanded-100 run, 75 completed the full workflow through held-out evaluation. Twelve incomplete runs were timeout-censored, two were memory-censored, and 11 exited during candidate generation without enough retained evidence for a more specific causal classification.
+- Resource censoring is therefore part of the observed execution outcome. Aggregate scientific recovery results should not reinterpret these incomplete runs as demonstrated failures of equation reconstruction.
+- The deterministic coordinate selector uses a fixed coordinate-search procedure and is not guaranteed to find the globally optimal combination of candidate RHS equations.
+- The Docker workflow currently targets `linux/amd64` and a CPU-oriented execution path. The frozen `libroadrunner==2.8.0` dependency prevents the current image from supporting Linux ARM64 without changing the dependency environment.
+- The expanded-run manifest does not separately record the imported PySR package version, although the project configuration used for the benchmark resolves PySR 1.5.9.
+- Docker reduces variation in the execution environment but does not guarantee bitwise-identical symbolic-search or floating-point results across hardware and software environments.
 
 ### Recovery-analysis limitations
 
-- Mechanistic ground-truth extraction failed for six workflow-complete models.
-- Three completed explicit-time models have a feature-space mismatch, so their 12 conditions are omitted from primary mechanistic averages.
-- SymPy exact equivalence is an identity test and may be affected by parsing or simplification limits; one RHS evaluation timed out.
-- Numerical equivalence samples only 32 positive state vectors over a fixed range and cannot prove global equivalence or trajectory accuracy.
-- Component metrics capture selected structural properties, not biological interpretability, parameter identifiability, or complete mechanism identity.
+- Mechanistic ground-truth extraction failed for six workflow-complete models, making 24 model/training-size conditions unavailable for the structural recovery analysis.
+- Three additional completed explicit-time models have a feature-space mismatch with the state-only inference representation. Their 12 conditions are classified separately rather than included in the primary mechanistic averages.
+- The component-level metrics evaluate selected mathematical properties of each RHS: state dependencies, numerator monomials, multiplicative interactions, and rational state dependence. They do not constitute a complete test of biological mechanism identity.
+- SymPy-based exact equivalence is a strict symbolic identity test and can be affected by expression parsing, canonicalization, or simplification limits. One otherwise eligible RHS evaluation timed out during this analysis.
+- Numerical RHS equivalence is a diagnostic rather than a proof of identity. It evaluates the inferred and reference RHSs at 32 positive synthetic state-space points drawn directly over the fixed numerical range used by the analysis; these points are not multipliers of each model's nominal initial state. Agreement at those sampled points cannot establish global mathematical equivalence or guarantee accurate trajectories elsewhere in state space.
+- Neither predictive accuracy nor the structural metrics establish biological parameter identifiability. Multiple equations can generate similar trajectories over the sampled domain, and the benchmark does not perform a formal structural- or practical-identifiability analysis.
+
+These limitations narrow the claims that can be made from the benchmark but do not invalidate the comparisons within its controlled setting. The strongest conclusions concern the tested Expanded-100 protocol: under exact derivatives, a fixed PySR search configuration, and the specified train/validation/held-out design, predictive recovery is substantially easier than strict equation recovery. Generalization to noisy experimental measurements, different model classes, alternative symbolic-regression configurations, or broader biological mechanisms remains an empirical question.
 
 ## 19. Future work
 
-The following are proposed experiments, not completed results:
+The present benchmark establishes a controlled baseline for symbolic reconstruction from exact simulated derivatives. The following directions are proposed extensions rather than completed results.
 
-- infer derivatives from sampled trajectories and evaluate controlled noise;
-- vary temporal sparsity, simulation horizon, and initial-condition range;
-- run multiple PySR seeds and quantify search variability;
-- measure sensitivity to iteration budgets, operators, expression size, parsimony, and candidate count;
-- compare additional symbolic-regression methods under the same split and evaluation controls;
-- add explicit time and parameter features where generating models require them;
-- extend mechanistic extraction to more SBML rules and constructs;
-- improve duration curation and preserve model-level review provenance;
-- broaden SED-ML coverage while retaining a defined standardized task; and
-- analyze compute scaling, resource censoring, and selection algorithms across model size and complexity.
+### From oracle derivatives to realistic observations
+
+A central next step is to replace exact simulator derivatives with derivatives estimated from sampled trajectories. This would make it possible to quantify how much recovery deteriorates when derivative estimation becomes part of the inference problem. Controlled measurement noise, temporal sparsity, alternative simulation horizons, and different initial-condition perturbation ranges could then be introduced systematically rather than changing several sources of difficulty at once.
+
+This progression would help separate errors caused by symbolic search from errors introduced before symbolic regression begins. It would also move the benchmark closer to experimental biological settings, where exact derivatives are generally unavailable.
+
+### Robustness of symbolic-regression recovery
+
+The current results characterize one fixed PySR configuration and deterministic seed. Future experiments should repeat the benchmark across multiple seeds and systematically vary iteration budgets, operator sets, maximum expression size, parsimony settings, and candidate-pool size.
+
+Such experiments could determine whether the observed gap between predictive and mechanistic recovery is robust to search configuration and whether additional computation improves equation recovery or mainly produces alternative predictive expressions. The same train/validation/held-out framework could also be used to compare PySR with additional symbolic-regression methods while preserving common data and evaluation controls.
+
+### Broader biological model scope
+
+The current state-only representation could be extended to include explicit time, parameters, or other exogenous variables when these quantities are required by the generating equations. Mechanistic ground-truth extraction could likewise be expanded to support a broader range of SBML rules and constructs.
+
+Future corpus work should also improve simulation-duration curation and preserve explicit model-level review provenance. Broader use of available SED-ML information could complement the standardized benchmark by testing recovery under additional biologically curated simulation conditions, while keeping those experiments distinct from the controlled task reported here.
+
+### Scaling and selection
+
+The Expanded-100 experiment also exposes computational questions that become increasingly important as model size and symbolic-search complexity grow. Future work should characterize runtime and memory scaling as functions of the number of states, candidate complexity, and training-set size; analyze the causes of resource censoring in greater detail; and compare the current deterministic coordinate selector with alternative system-level selection strategies.
+
+Together, these extensions would test whether the conclusions of the present benchmark persist when the inference problem becomes noisier, less constrained, computationally larger, and more representative of experimental biological data. They would also provide a path from the controlled oracle-derivative benchmark developed here toward a broader evaluation of symbolic regression for biological dynamical-system discovery.
 
 ## 20. Project evolution during GSoC
 
 The original project proposal envisioned a broad evaluation of symbolic-regression approaches for biological network dynamics, including comparisons across methodological families and questions related to identifiability. During GSoC, the project was narrowed to establish a rigorous and reproducible PySR baseline before extending the comparison to additional methods.
 
-This change in scope led to a stronger emphasis on benchmark design. The final work separates training, validation, and held-out trajectories; evaluates multiple training-set sizes; selects equations at the level of the coupled dynamical system; distinguishes predictive performance from mechanistic recovery; and records computational failures separately from scientific outcomes.
+This change in scope reflected an important methodological requirement that became clearer during development: meaningful comparisons between equation-discovery methods require a stable benchmark definition, reproducible biological inputs, controlled data splits, explicit recovery criteria, and auditable execution outcomes. Establishing those foundations therefore became the primary objective of the completed work.
 
-The resulting PySR-BioModels benchmark should therefore be viewed as a foundation rather than a complete comparison of equation-discovery methods. It provides a controlled baseline against which future extensions can evaluate estimated or noisy derivatives, alternative symbolic-regression algorithms, identifiability-aware analyses, and additional biological model classes.
+The resulting benchmark separates training, validation, and held-out trajectories; evaluates nested training-set sizes; performs candidate selection at the level of the coupled dynamical system; distinguishes predictive performance from several levels of mechanistic recovery; and records computational censoring separately from scientific evaluation. Corpus provenance, simulation metadata, run manifests, model-specific results, and a containerized execution path were also incorporated so that the benchmark can be inspected and reproduced beyond the original development environment.
+
+The final GSoC work product should therefore be viewed as a completed PySR baseline and an extensible benchmark foundation, rather than as a completed comparison of all symbolic-regression approaches proposed at the beginning of the project. This distinction is important: the broader methodological questions remain relevant, but they can now be investigated against a defined experimental framework rather than requiring each future method to establish its own data, evaluation, and execution conventions.
+
+Future extensions can build on this foundation to evaluate estimated and noisy derivatives, alternative symbolic-regression algorithms, search variability, identifiability-aware analyses, and additional biological model classes while preserving the same separation between predictive, mechanistic, and computational outcomes.
 
 ## 21. Work product and repository navigation
 
@@ -758,19 +831,23 @@ Key work-product paths are:
 - [Algebraic evaluation](https://github.com/nprzrosas/pysr-biomodels/blob/main/src/evaluate_algebraic_recovery.py)
 - [Corpus-selection audit](https://github.com/nprzrosas/pysr-biomodels/tree/main/results/model_selection_audit)
 - [Expanded model inventory](https://github.com/nprzrosas/pysr-biomodels/tree/main/results/expanded_model_inventory)
-- [Report claim audit](https://github.com/nprzrosas/pysr-biomodels/blob/main/analysis/gsoc_2026_final_report_audit.md)
+- [Report claim audit](https://github.com/nprzrosas/pysr-biomodels/blThe analysis CSVs are the authoritative quantitative sources for the reported benchmark results. The expanded-run manifest records execution status and run-level provenance, while the source modules document the implemented simulation, inference, selection, and evaluation procedures. The report claim audit provides an additional trace between major quantitative statements in this work product and their supporting analysis artifacts.
 
-The analysis CSVs are the authoritative quantitative source for this report; the manifest and source modules provide execution and methodology provenance.
+les provide execution and methodology provenance.
 
 ## 22. Conclusions
 
-PySR-BioModels establishes a controlled benchmark for asking whether symbolic regression can reconstruct biological ODE systems from simulated observations. The benchmark uses known SBML models as ground truth, separates model fitting and system selection from held-out testing, and evaluates inferred systems at predictive, structural, numerical, and algebraic levels.
+PySR-BioModels establishes a controlled benchmark for asking whether symbolic regression can reconstruct biological ODE systems from simulated observations. Known SBML models provide the reference dynamics, while the benchmark separates equation fitting and system selection from held-out evaluation and measures recovery at predictive, structural, numerical, and exact algebraic levels.
 
-Across the Expanded-100 benchmark, 75 of 100 launched models completed the full workflow through held-out testing. Increasing the number of training trajectories generally improved performance up to 16 trajectories under the tested configuration, but the improvement was not monotonic at 32 trajectories. The best median held-out macro-NRMSE was 0.0243 with 16 training trajectories, and 73 of 75 completed models produced full held-out predictions at that training size.
+Of the 100 benchmark-ready models launched in the Expanded-100 experiment, 75 completed the full workflow through held-out evaluation. Across these completed models, 284 of the 300 model/training-size conditions produced complete predictions for all eight held-out trajectories. Increasing the number of training trajectories improved aggregate predictive performance through 16 trajectories under the tested configuration, but the trend was not monotonic at 32. The lowest median held-out macro-NRMSE was 0.0243 at 16 training trajectories, where 73 of 75 completed models produced predictions for all held-out trajectories.
 
-Mechanistic evaluation revealed a more important result. Recovery of state dependencies and other structural components was substantially more common than exact recovery of the generating equations. At 16 training trajectories, mean state-dependency F1 reached 0.844, while exact algebraic recovery remained extremely rare across the benchmark. The BIOMD0000000156 case study illustrates the distinction particularly clearly: the inferred system reproduced held-out trajectories with very low error and recovered the evaluated structural components, yet its equations were not exact algebraic matches to the ground truth.
+The mechanistic analyses reveal a sharper distinction between predictive success and recovery of the generating equations. At 16 training trajectories, mean state-dependency F1 reached 0.844, while more detailed monomial and interaction recovery remained lower. Across all eligible RHS comparisons, 140 of 991 inferred equations (14.1%) satisfied the numerical-equivalence criterion, whereas only 2 of 991 (0.2%) were exact algebraic matches. Both exact matches corresponded to trivial zero RHS equations; no nonzero RHS and no complete inferred system was recovered as an exact algebraic identity.
 
-These results show why biological equation discovery should not be evaluated using trajectory fit alone. Predictive generalization, mechanistic structure, numerical equivalence, and exact symbolic recovery answer different scientific questions and should be reported separately. The principal contribution of this project is therefore not only a set of PySR results, but a reproducible framework for measuring these different forms of success on known biological dynamical systems.
+The model-level results illustrate why these distinctions matter. For BIOMD0000000156, PySR recovered the evaluated dependency, monomial, interaction, and rational structure across all training sizes and achieved held-out macro-NRMSE on the order of $10^{-6}$. At 32 training trajectories, all three inferred RHS equations also passed the numerical-equivalence test, but none was an exact algebraic match because of small coefficient differences. Conversely, BIOMD0000000319 retained correct state dependencies while missing important details of functional form, and BIOMD0000000728 demonstrated that successful numerical integration alone does not imply useful predictive or mechanistic recovery.
+
+The central conclusion is therefore that, under the controlled exact-derivative protocol studied here, reproducing unseen dynamics is substantially easier than reconstructing the exact generating equations. Trajectory accuracy, structural recovery, numerical RHS equivalence, and exact symbolic identity represent different levels of evidence and should not be treated as interchangeable measures of successful equation discovery.
+
+The principal contribution of this GSoC project is consequently both scientific and infrastructural: a quantitative PySR baseline on known biological dynamical systems and a reproducible framework that connects curated model inputs, controlled simulation and data splits, system-level equation selection, held-out testing, mechanistic evaluation, execution provenance, and containerized deployment. This foundation makes it possible for future symbolic-regression methods and more realistic data conditions to be compared against the same explicitly defined recovery criteria.
 
 ## 23. Acknowledgements
 
