@@ -534,7 +534,9 @@ Together, these results indicate that mechanistic recovery is not a single all-o
 
 ## 13. Exact versus approximate recovery
 
-RHS-level numerical and exact results use only the 66-model compatible cohort. The denominator is 248 RHSs for three training sizes and 247 at train 8, where one RHS algebraic evaluation timed out.
+The previous section evaluates whether inferred equations recover particular structural components of the reference ODEs. A stricter test asks whether an inferred RHS behaves like, or is mathematically identical to, the complete reference RHS. The benchmark therefore distinguishes **numerical equivalence** from **exact algebraic equivalence**.
+
+These RHS-level analyses use only the 66-model compatible cohort. Across those models, 248 individual RHS equations are eligible for comparison at training sizes 4, 16, and 32. At training size 8, one algebraic evaluation timed out, leaving 247 evaluated RHSs.
 
 | Training trajectories | Numerically equivalent RHSs | Exactly equivalent RHSs |
 |---:|---:|---:|
@@ -544,9 +546,14 @@ RHS-level numerical and exact results use only the 66-model compatible cohort. T
 | 32 | 37/248 | 0/248 |
 | **Pooled** | **140/991 (14.1%)** | **2/991 (0.2%)** |
 
-The two exact matches are both trivial zero equations in BIOMD0000000941: the ground-truth RHS is `0` and the inferred RHS is also `0`. No nonzero RHS achieved exact algebraic equivalence, and no complete coupled system was exactly equivalent to its ground-truth system.
+Numerical equivalence is substantially more common than exact algebraic equivalence. Across all four training-set sizes, 140 of 991 evaluated RHSs (14.1%) satisfy the benchmark's numerical-equivalence criterion. As defined in Section 9, this means that the inferred and reference RHSs produce sufficiently similar derivative values at the fixed set of sampled state-space points under the specified numerical tolerances. It is a finite numerical diagnostic and does not imply that the two symbolic expressions are mathematically identical.
 
-The numerical-equivalence rate is larger, but has a different meaning. It records agreement at a fixed finite set of sampled state points within stated tolerances. It must not be described as exact symbolic recovery. Likewise, higher dependency F1 values show that PySR often identified relevant states; they do not establish equation recovery.
+Exact algebraic recovery is much rarer. Only 2 of 991 evaluated RHSs (0.2%) satisfy the exact symbolic criterion. Moreover, both exact matches are trivial zero equations from BIOMD0000000941: the reference RHS is `0` and the inferred RHS is also `0`. No nonzero RHS achieves exact algebraic equivalence, and no complete coupled ODE system is exactly equivalent to its reference system.
+
+The contrast between the two criteria is important. An inferred expression can produce nearly the same derivative values over the tested state-space points while differing algebraically from the reference equation. Numerical agreement without exact symbolic recovery can arise, for example, from small coefficient differences, alternative functional forms, or agreement restricted to the sampled region. Conversely, the exact criterion deliberately requires symbolic identity after the canonical simplification procedure described in Section 9; numerical closeness alone cannot satisfy it.
+
+These results also place the structural metrics from Section 12 in context. The substantially higher state-dependency F1 scores show that PySR often identifies which dynamic variables participate in an RHS, while the much lower RHS-level rates of numerical and exact equivalence show that recovering those dependencies does not imply recovery of the full governing equation. The benchmark therefore supports a graded interpretation of recovery: identifying relevant states is more common than reproducing the complete RHS numerically, and exact recovery of a nontrivial reference RHS is not observed in this experiment.
+
 
 ## 14. Case studies
 
