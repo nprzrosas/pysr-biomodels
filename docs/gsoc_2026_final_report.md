@@ -500,7 +500,9 @@ This example captures a central distinction in the benchmark. An inferred ODE sy
 
 ## 12. Mechanistic recovery
 
-Mechanistic evaluation is available for 276 of the 300 completed conditions. Six models (24 conditions) could not be evaluated because ground-truth extraction failed. Of the evaluated conditions, 12 from three explicit-time models have a feature-space mismatch. The primary comparison therefore uses 66 compatible models at four training sizes, or 264 conditions.
+Predictive accuracy asks whether an inferred ODE system reproduces unseen trajectories. Mechanistic recovery asks a different and stricter question: does the inferred equation recover important mathematical components of the reference ODE? As defined in Section 9, the benchmark evaluates this question at several structural levels, including state dependencies, numerator monomials, multiplicative interactions, and rational structure.
+
+Mechanistic evaluation is available for 276 of the 300 model-training conditions from the 75 workflow-complete models. Six models, corresponding to 24 conditions across the four training-set sizes, could not be evaluated because ground-truth extraction failed. Of the remaining evaluated conditions, 12 conditions from three explicit-time models have a feature-space mismatch between the inferred and reference equations. The primary comparison therefore uses 66 compatible models evaluated at four training-set sizes, for a total of 264 conditions.
 
 | Training trajectories | Mean dependency F1 | Mean numerator monomial F1 | Mean interaction F1 | Rational-structure accuracy |
 |---:|---:|---:|---:|---:|
@@ -509,9 +511,15 @@ Mechanistic evaluation is available for 276 of the 300 completed conditions. Six
 | 16 | 0.8439 | 0.6125 | 0.6539 | 0.6503 |
 | 32 | 0.8277 | 0.5853 | 0.5894 | 0.6374 |
 
-These are means of model-level macro scores, not pooled equation-level means. Dependency, numerator-monomial, and interaction F1 improve in aggregate from 4 to 16 trajectories and decline at 32. Rational-structure accuracy changes little through 16 and is lowest at 32. Together with predictive performance, this is consistent with an aggregate benefit from 4 to 16 trajectories under the fixed setup, but no further aggregate improvement at 32.
+These values are means of model-level macro scores rather than pooled equation-level means, so each biological model contributes equally regardless of how many state equations it contains.
 
-The paired model-level comparison from 4 to 32 trajectories shows why a universal monotonic claim is inappropriate:
+The clearest pattern is that state-dependency recovery is stronger than recovery of the more detailed mathematical structure. For example, with 16 training trajectories, mean dependency F1 reaches 0.8439, compared with 0.6125 for numerator monomials and 0.6539 for multiplicative interactions. In practical terms, PySR is more successful at recovering **which dynamic state variables participate in an equation** than at recovering **the precise mathematical way in which those variables are combined**. This distinction is important because identifying the correct variables is only one part of reconstructing the underlying biological mechanism.
+
+Rational-structure accuracy measures a different structural property: whether the inferred and reference expressions agree on the presence of rational state dependence. It is therefore not an F1 score. Its mean remains relatively stable from 4 through 16 training trajectories (0.6553, 0.6506, and 0.6503) and decreases to 0.6374 at 32 trajectories.
+
+At the population level, dependency, numerator-monomial, and interaction F1 all improve from 4 to 16 training trajectories and then decline at 32. This agrees with the broader pattern seen in predictive performance: under the fixed search configuration, increasing the training set from 4 to 16 trajectories is associated with better aggregate performance, but increasing it further to 32 does not produce an additional aggregate improvement. This should not be interpreted as evidence that 16 trajectories are intrinsically optimal, because the symbolic-regression search budget and all other benchmark settings remain fixed.
+
+The paired model-level comparison from 4 to 32 trajectories further shows why a universal monotonic relationship between training-set size and structural recovery would be inappropriate:
 
 | Metric | Improved | Unchanged | Worsened |
 |---|---:|---:|---:|
@@ -519,7 +527,10 @@ The paired model-level comparison from 4 to 32 trajectories shows why a universa
 | Numerator monomial F1 | 33/66 | 10/66 | 23/66 |
 | Interaction F1 | 23/66 | 27/66 | 16/66 |
 
-Even where the mean at 32 exceeds the mean at 4, substantial groups of models are unchanged or worse. Training-set size interacts with finite search, candidate ranking, coupled-system selection, model structure, and the fixed search budget.
+The model-level responses are heterogeneous. For dependency F1, for example, 24 of 66 models improve from 4 to 32 trajectories, 27 remain unchanged, and 15 worsen. Numerator-monomial recovery improves for 33 models but worsens for 23, while interaction recovery improves for 23 and worsens for 16. Thus, even when an aggregate mean increases, a substantial fraction of individual models may show no improvement or may perform worse.
+
+Together, these results indicate that mechanistic recovery is not a single all-or-none outcome. PySR can recover broad state dependencies more reliably than finer algebraic structure, and additional training trajectories affect different biological models differently. The stricter question of whether the complete inferred RHS is numerically or algebraically equivalent to the reference equation is examined next.
+
 
 ## 13. Exact versus approximate recovery
 
