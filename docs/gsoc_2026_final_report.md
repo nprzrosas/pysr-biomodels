@@ -390,7 +390,7 @@ These component-level metrics distinguish equations that contain similar biologi
 
 ### Numerical equivalence
 
-State dependencies and functional-form components describe structural similarity, but two expressions can also be compared directly by evaluating the derivatives they produce.
+State dependencies and functional-form components describe structural similarity, but two expressions can also be compared directly by evaluating the derivatives they produce. Symbolic-regression benchmarks distinguish predictive or numerical agreement from recovery of the underlying symbolic expression [14,15]. Following this general distinction, the numerical-equivalence diagnostic used here tests whether the inferred and reference RHSs produce approximately the same derivative values at sampled points in state space.
 
 For each evaluable RHS, the reference and inferred expressions are evaluated at 32 deterministic positive state vectors. Each state value is independently generated as
 
@@ -400,7 +400,7 @@ x = 10^u,
 u \sim U(-1,1),
 $$
 
-using random seed 4040. Each state value is therefore sampled independently and uniformly in log10 space over the interval from $0.1$ to $10$. These values are synthetic state-space evaluation points used only for the numerical-equivalence diagnostic; unlike the initial-condition perturbations described in Section 6, they are not scaled relative to each model's nominal initial conditions.
+using random seed 4040. Each state value is therefore sampled independently and uniformly in log10 space over the interval from $0.1$ to $10$. These values are synthetic state-space evaluation points used only for the numerical-equivalence diagnostic; unlike the initial-condition perturbations described in Section 6, they are not scaled relative to each model's nominal initial conditions. The number of evaluation points, sampling distribution, random seed, and numerical tolerances are benchmark-specific choices rather than standard thresholds adopted from these studies.
 
 At every sampled state vector, the inferred and reference derivative values are compared using NumPy's `np.isclose`, with relative tolerance `1e-6` and absolute tolerance `1e-9`. An RHS is marked numerically equivalent only when all 32 evaluations are valid and all 32 comparisons satisfy these tolerances.
 
@@ -705,3 +705,7 @@ I thank mentors Augustin Luna, Eran Agmon, Mark Kittisopikul, and Matthias Köni
 12. Mangan NM, Brunton SL, Proctor JL, Kutz JN. **Inferring Biological Networks by Sparse Identification of Nonlinear Dynamics.** *IEEE Transactions on Molecular, Biological and Multi-Scale Communications*. 2016;2(1):52-63. doi:10.1109/TMBMC.2016.2633265.
 
 13. Pantazis Y, Tsamardinos I. **A unified approach for sparse dynamical system inference from temporal measurements.** *Bioinformatics*. 2019;35(18):3387-3396. doi:10.1093/bioinformatics/btz065.
+
+14. La Cava W, Burlacu B, Virgolin M, et al. **Contemporary Symbolic Regression Methods and their Relative Performance.** *Advances in Neural Information Processing Systems*. 2021;2021(DB1):1-16.
+
+15. de Franca FO, Virgolin M, Kommenda M, et al. **SRBench++: Principled Benchmarking of Symbolic Regression With Domain-Expert Interpretation.** *IEEE Transactions on Evolutionary Computation*. 2025;29(4):1127-1134. doi:10.1109/TEVC.2024.3423681.
