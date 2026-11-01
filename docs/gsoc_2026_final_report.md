@@ -502,7 +502,15 @@ This example captures a central distinction in the benchmark. An inferred ODE sy
 
 Predictive accuracy asks whether an inferred ODE system reproduces unseen trajectories. Mechanistic recovery asks a different and stricter question: does the inferred equation recover important mathematical components of the reference ODE? As defined in Section 9, the benchmark evaluates this question at several structural levels, including state dependencies, numerator monomials, multiplicative interactions, and rational structure.
 
-Mechanistic evaluation is available for 276 of the 300 model-training conditions from the 75 workflow-complete models. Six models, corresponding to 24 conditions across the four training-set sizes, could not be evaluated because ground-truth extraction failed. Of the remaining evaluated conditions, 12 conditions from three explicit-time models have a feature-space mismatch between the inferred and reference equations. The primary comparison therefore uses 66 compatible models evaluated at four training-set sizes, for a total of 264 conditions.
+The mechanistic analysis starts from the 75 models that completed the full workflow. Because each model was evaluated using four training-set sizes (4, 8, 16, and 32 trajectories), these 75 models produce **75 × 4 = 300 model-training conditions**. Here, one model-training condition means one BioModels model evaluated at one particular training-set size.
+
+Not all 300 conditions could be used for mechanistic comparison. For six models, ground-truth equation extraction failed. Because each of these six models appears at all four training-set sizes, this removes **6 × 4 = 24 conditions**, leaving **276 conditions with mechanistic evaluation results**.
+
+A second compatibility issue affects three explicit-time models. Their reference equations depend explicitly on time, whereas the PySR feature space used in this benchmark contains only dynamic state variables. These three models account for **3 × 4 = 12 conditions** for which a direct structural comparison would not be like-for-like. They are therefore excluded from the primary mechanistic comparison.
+
+The resulting primary cohort contains **66 structurally compatible models**. Evaluating each at four training-set sizes gives **66 × 4 = 264 model-training conditions** used for the main mechanistic-recovery analysis. The filtering can therefore be summarized as:
+
+**300 total conditions → 276 with ground truth available → 264 structurally compatible conditions (66 models × 4 training-set sizes).**
 
 | Training trajectories | Mean dependency F1 | Mean numerator monomial F1 | Mean interaction F1 | Rational-structure accuracy |
 |---:|---:|---:|---:|---:|
