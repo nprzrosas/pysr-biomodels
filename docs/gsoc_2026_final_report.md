@@ -831,9 +831,9 @@ Key work-product paths are:
 - [Algebraic evaluation](https://github.com/nprzrosas/pysr-biomodels/blob/main/src/evaluate_algebraic_recovery.py)
 - [Corpus-selection audit](https://github.com/nprzrosas/pysr-biomodels/tree/main/results/model_selection_audit)
 - [Expanded model inventory](https://github.com/nprzrosas/pysr-biomodels/tree/main/results/expanded_model_inventory)
-- [Report claim audit](https://github.com/nprzrosas/pysr-biomodels/blThe analysis CSVs are the authoritative quantitative sources for the reported benchmark results. The expanded-run manifest records execution status and run-level provenance, while the source modules document the implemented simulation, inference, selection, and evaluation procedures. The report claim audit provides an additional trace between major quantitative statements in this work product and their supporting analysis artifacts.
+- [Report claim audit](https://github.com/nprzrosas/pysr-biomodels/blob/main/analysis/gsoc_2026_final_report_audit.md)
 
-les provide execution and methodology provenance.
+The analysis CSVs are the authoritative quantitative sources for the reported benchmark results. The expanded-run manifest records execution status and run-level provenance, while the source modules document the implemented simulation, inference, selection, and evaluation procedures. The report claim audit provides an additional trace between major quantitative statements in this work product and their supporting analysis artifacts.
 
 ## 22. Conclusions
 
