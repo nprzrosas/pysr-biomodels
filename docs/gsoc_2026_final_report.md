@@ -208,7 +208,7 @@ Simulation durations are read from bundled, model-aware metadata and checked for
 
 The current pipeline is:
 
-1. resolve and preflight the SBML model;
+1. resolve and preflight the SBML model, where *preflight* is a preliminary eligibility check that verifies that the model can be located and loaded and satisfies the structural, initial-condition, and simulation-metadata requirements of the benchmark before computationally expensive inference begins;
 2. create deterministic training, validation, and test initial conditions;
 3. simulate development data and extract exact derivatives;
 4. compute state scales from training data only;
