@@ -272,7 +272,7 @@ Predictive dynamics are evaluated by numerically integrating both the reference 
 
 The trajectory error is calculated in several steps so that errors from states with very different numerical magnitudes can be compared fairly.
 
-First, for state $j$ in trajectory $k$, sampled at $T$ time points, the root-mean-square error (RMSE) measures the typical difference between the inferred trajectory, $\hat{x}_{k,j}(t)$, and the reference trajectory, $x_{k,j}(t)$:
+First, for state $j$ in trajectory $k$, sampled at $T$ time points, the root-mean-square error (RMSE) measures the typical difference between the inferred and reference trajectories:
 
 $$
 \mathrm{RMSE}_{k,j}
