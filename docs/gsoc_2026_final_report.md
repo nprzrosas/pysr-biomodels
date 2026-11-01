@@ -28,7 +28,7 @@ These results demonstrate an important distinction for biological equation disco
 
 ## 2. Motivation and biological context
 
-Mathematical models are widely used to describe how interacting biological components change over time. Examples include signaling networks, metabolic pathways, gene-regulatory systems, and other biochemical reaction networks. A deterministic model with \(J\) dynamic states can be represented as
+Mathematical models are widely used to describe how interacting biological components change over time. Examples include signaling networks, metabolic pathways, gene-regulatory systems, and other biochemical reaction networks. A deterministic model with $J$ dynamic states can be represented as
 
 $$
 \frac{d\mathbf{x}}{dt}
@@ -36,9 +36,9 @@ $$
 \mathbf{f}(\mathbf{x}, \boldsymbol{\theta}),
 $$
 
-where \(\mathbf{x}\) contains the dynamic state variables, \(\boldsymbol{\theta}\) contains model parameters, and \(\mathbf{f}\) specifies the mechanisms governing their rates of change.
+where $\mathbf{x}$ contains the dynamic state variables, $\boldsymbol{\theta}$ contains model parameters, and $\mathbf{f}$ specifies the mechanisms governing their rates of change.
 
-In a conventional mechanistic-modeling workflow, the mathematical form of \(\mathbf{f}\) is constructed from biological knowledge and then its parameters are estimated from experimental data. Equation discovery asks a more difficult question: **can the mathematical form itself be inferred from observations?**
+In a conventional mechanistic-modeling workflow, the mathematical form of $\mathbf{f}$ is constructed from biological knowledge and then its parameters are estimated from experimental data. Equation discovery asks a more difficult question: **can the mathematical form itself be inferred from observations?**
 
 This distinction matters because different equations can generate similar trajectories over a limited region of state space. A model can therefore be an excellent predictor without reproducing the mechanism that generated the data. Conversely, an inferred equation may identify biologically relevant dependencies while differing in coefficients, interactions, or algebraic form.
 
@@ -66,9 +66,9 @@ $$
 \hat{\mathbf{f}}(\mathbf{x}),
 $$
 
-where \(\hat{\mathbf{f}}\) is inferred from observations rather than specified beforehand.
+where $\hat{\mathbf{f}}$ is inferred from observations rather than specified beforehand.
 
-In this benchmark, each dynamic state is treated as a separate symbolic-regression target during candidate generation. For state \(x_j\), PySR searches for expressions of the form
+In this benchmark, each dynamic state is treated as a separate symbolic-regression target during candidate generation. For state $x_j$, PySR searches for expressions of the form
 
 $$
 \frac{dx_j}{dt}
@@ -235,7 +235,7 @@ The final framework reports complementary dimensions. None substitutes for all t
 
 #### Predictive dynamics
 
-Reference and inferred systems are integrated with SciPy's `solve_ivp` using LSODA, relative tolerance `1e-7`, absolute tolerance `1e-9`, and at most 8,000 RHS evaluations per trajectory. For state \(j\) in trajectory \(k\), sampled at \(T\) time points, the state-specific trajectory RMSE is
+Reference and inferred systems are integrated with SciPy's `solve_ivp` using LSODA, relative tolerance `1e-7`, absolute tolerance `1e-9`, and at most 8,000 RHS evaluations per trajectory. For state $j$ in trajectory $k$, sampled at $T$ time points, the state-specific trajectory RMSE is
 
 $$
 \operatorname{RMSE}_{k,j} =
@@ -250,13 +250,13 @@ s_j = \max_{r\in\mathcal{D}_{\mathrm{train}}}|x_{r,j}|,
 \operatorname{NRMSE}_{k,j} = \frac{\operatorname{RMSE}_{k,j}}{s_j}.
 $$
 
-With \(J\) dynamic states, the trajectory macro-NRMSE is the unweighted state mean,
+With $J$ dynamic states, the trajectory macro-NRMSE is the unweighted state mean,
 
 $$
 M_k = \frac{1}{J}\sum_{j=1}^{J}\operatorname{NRMSE}_{k,j}.
 $$
 
-For either validation or held-out testing, the system macro-NRMSE is the unweighted mean over its \(K=8\) trajectories, \(K^{-1}\sum_{k=1}^{K}M_k\). The aggregate is finite only when all eight trajectories integrate successfully; otherwise the implementation records failed status and an infinite system macro-NRMSE.
+For either validation or held-out testing, the system macro-NRMSE is the unweighted mean over its $K=8$ trajectories, $K^{-1}\sum_{k=1}^{K}M_k$. The aggregate is finite only when all eight trajectories integrate successfully; otherwise the implementation records failed status and an infinite system macro-NRMSE.
 
 #### State-dependency recovery
 
@@ -268,7 +268,7 @@ R=\frac{TP}{TP+FN},\qquad
 F_1=\frac{2PR}{P+R},
 $$
 
-where the implementation evaluates F1 using the equivalent count expression \(2TP/(2TP+FP+FN)\). Precision is undefined (`NaN`) when no dependencies are inferred, and recall is undefined when the ground-truth set is empty. If both sets are empty, F1 is defined as 1; if only one is empty, F1 is 0. Model-level dependency F1 macro-averages RHS scores. A high score says that the same states appear; it does not establish the same powers, interactions, coefficients, or rational form.
+where the implementation evaluates F1 using the equivalent count expression $2TP/(2TP+FP+FN)$. Precision is undefined (`NaN`) when no dependencies are inferred, and recall is undefined when the ground-truth set is empty. If both sets are empty, F1 is defined as 1; if only one is empty, F1 is 0. Model-level dependency F1 macro-averages RHS scores. A high score says that the same states appear; it does not establish the same powers, interactions, coefficients, or rational form.
 
 #### Functional-form recovery
 
@@ -284,7 +284,7 @@ The report uses model-level macro summaries so models with more state equations 
 
 #### Numerical equivalence
 
-For each evaluable RHS, true and inferred expressions are evaluated at 32 deterministic positive state vectors. Each state is independently sampled as \(10^u\), \(u \sim U(-1,1)\), with seed 4040. The RHS is marked numerically equivalent only if all 32 evaluations are valid and each satisfies `np.isclose` with relative tolerance `1e-6` and absolute tolerance `1e-9`.
+For each evaluable RHS, true and inferred expressions are evaluated at 32 deterministic positive state vectors. Each state is independently sampled as $10^u$, $u \sim U(-1,1)$, with seed 4040. The RHS is marked numerically equivalent only if all 32 evaluations are valid and each satisfies `np.isclose` with relative tolerance `1e-6` and absolute tolerance `1e-9`.
 
 This finite sample can identify close behavior over the sampled region, but cannot prove identity throughout state space.
 
@@ -389,7 +389,7 @@ These cases illustrate separations among predictive, component-level, numerical,
 
 ### BIOMD0000000156
 
-This three-state model has dependency F1, numerator monomial F1, interaction F1, and rational-structure accuracy equal to 1 at every training size. Its held-out macro-NRMSE ranges from approximately \(3.65\times10^{-6}\) to \(3.78\times10^{-6}\). At 32 training trajectories, all three RHSs pass the numerical-equivalence diagnostic, yet none is exactly algebraically equivalent.
+This three-state model has dependency F1, numerator monomial F1, interaction F1, and rational-structure accuracy equal to 1 at every training size. Its held-out macro-NRMSE ranges from approximately $3.65\times10^{-6}$ to $3.78\times10^{-6}$. At 32 training trajectories, all three RHSs pass the numerical-equivalence diagnostic, yet none is exactly algebraically equivalent.
 
 The case demonstrates excellent prediction and recovery of the evaluated mechanistic components without exact symbolic identity. Coefficient differences or algebraic details can prevent exact equality even when trajectories and sampled RHS values agree closely.
 
