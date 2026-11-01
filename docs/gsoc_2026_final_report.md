@@ -272,7 +272,7 @@ Predictive dynamics are evaluated by numerically integrating both the reference 
 
 The trajectory error is calculated in several steps so that errors from states with very different numerical magnitudes can be compared fairly.
 
-First, for state \(j\) in trajectory \(k\), sampled at \(T\) time points, the root-mean-square error (RMSE) measures the typical difference between the inferred trajectory, \(\hat{x}_{k,j}(t)\), and the reference trajectory, \(x_{k,j}(t)\):
+First, for state $j$ in trajectory $k$, sampled at $T$ time points, the root-mean-square error (RMSE) measures the typical difference between the inferred trajectory, $\hat{x}_{k,j}(t)$, and the reference trajectory, $x_{k,j}(t)$:
 
 $$
 \mathrm{RMSE}_{k,j}
@@ -299,9 +299,9 @@ s_j
 \frac{\mathrm{RMSE}_{k,j}}{s_j}.
 $$
 
-Here, \(s_j\) is the largest absolute training value observed for state \(j\). Using training data only prevents validation or held-out data from influencing the normalization.
+Here, $s_j$ is the largest absolute training value observed for state $j$. Using training data only prevents validation or held-out data from influencing the normalization.
 
-For a model with \(J\) dynamic states, the normalized errors are then averaged across states to obtain one error value for trajectory \(k\):
+For a model with $J$ dynamic states, the normalized errors are then averaged across states to obtain one error value for trajectory $k$:
 
 $$
 M_k
@@ -313,7 +313,7 @@ $$
 
 This quantity is called the **trajectory macro-NRMSE**. The term *macro* indicates that each state contributes equally to the average rather than states being weighted according to their numerical magnitude or number of observations.
 
-Finally, the benchmark evaluates \(K=8\) trajectories in either the validation or held-out partition and averages their trajectory scores:
+Finally, the benchmark evaluates $K=8$ trajectories in either the validation or held-out partition and averages their trajectory scores:
 
 $$
 M_{\mathrm{system}}
@@ -334,7 +334,7 @@ A system macro-NRMSE is considered finite only when all eight trajectories in th
 
 Predictive agreement does not reveal whether PySR recovered the same variables in the equations. State-dependency recovery therefore asks a simpler structural question: **does an inferred RHS depend on the same dynamic states as the corresponding reference RHS?**
 
-For example, suppose a reference RHS depends on states \(A\) and \(B\), while the inferred RHS depends on \(A\) and \(C\). State \(A\) is a true positive (TP) because it appears in both dependency sets. State \(C\) is a false positive (FP) because it appears only in the inferred equation, and state \(B\) is a false negative (FN) because the inferred equation failed to recover it.
+For example, suppose a reference RHS depends on states $A$ and $B$, while the inferred RHS depends on $A$ and $C$. State $A$ is a true positive (TP) because it appears in both dependency sets. State $C$ is a false positive (FP) because it appears only in the inferred equation, and state $B$ is a false negative (FN) because the inferred equation failed to recover it.
 
 From these counts, precision, recall, and F1 are calculated as
 
@@ -364,7 +364,7 @@ Precision answers: *of the state dependencies inferred by PySR, how many were pr
 
 Precision is undefined (`NaN`) when no dependencies are inferred, and recall is undefined when the reference dependency set is empty. If both dependency sets are empty, F1 is defined as 1 because the absence of state dependencies was correctly recovered. If only one set is empty, F1 is 0.
 
-Model-level dependency F1 is calculated by macro-averaging the RHS-level F1 scores, giving each state equation equal weight. Importantly, this metric considers only **which state variables appear**. For example, \(AB\), \(A+B\), and \(A/B\) all involve the dependency set \(\{A,B\}\), even though their mathematical forms are very different. A high dependency F1 therefore does not establish recovery of powers, interactions, coefficients, or rational structure.
+Model-level dependency F1 is calculated by macro-averaging the RHS-level F1 scores, giving each state equation equal weight. Importantly, this metric considers only **which state variables appear**. For example, $AB$, $A+B$, and $A/B$ all involve the dependency set $\{A,B\}$, even though their mathematical forms are very different. A high dependency F1 therefore does not establish recovery of powers, interactions, coefficients, or rational structure.
 
 ### Functional-form recovery
 
@@ -376,7 +376,7 @@ $$
 \frac{A^2B+C}{1+D}.
 $$
 
-This expression contains several kinds of structural information. The numerator contains the monomials \(A^2B\) and \(C\); \(A\) and \(B\) participate in a multiplicative interaction in the first monomial; and state \(D\) appears in the denominator, making the expression rational with respect to the dynamic states.
+This expression contains several kinds of structural information. The numerator contains the monomials $A^2B$ and $C$; $A$ and $B$ participate in a multiplicative interaction in the first monomial; and state $D$ appears in the denominator, making the expression rational with respect to the dynamic states.
 
 The evaluator therefore compares:
 
@@ -400,7 +400,7 @@ x = 10^u,
 u \sim U(-1,1),
 $$
 
-using random seed 4040. Each state value is therefore sampled independently and uniformly in log10 space over the interval from \(0.1\) to \(10\). These values are synthetic state-space evaluation points used only for the numerical-equivalence diagnostic; unlike the initial-condition perturbations described in Section 6, they are not scaled relative to each model's nominal initial conditions.
+using random seed 4040. Each state value is therefore sampled independently and uniformly in log10 space over the interval from $0.1$ to $10$. These values are synthetic state-space evaluation points used only for the numerical-equivalence diagnostic; unlike the initial-condition perturbations described in Section 6, they are not scaled relative to each model's nominal initial conditions.
 
 At every sampled state vector, the inferred and reference derivative values are compared using NumPy's `np.isclose`, with relative tolerance `1e-6` and absolute tolerance `1e-9`. An RHS is marked numerically equivalent only when all 32 evaluations are valid and all 32 comparisons satisfy these tolerances.
 
