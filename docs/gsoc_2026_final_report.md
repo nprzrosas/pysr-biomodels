@@ -529,7 +529,7 @@ Rational-structure accuracy measures a different structural property: whether th
 
 At the population level, dependency, numerator-monomial, and interaction F1 all improve from 4 to 16 training trajectories and then decline at 32. This agrees with the broader pattern seen in predictive performance: under the fixed search configuration, increasing the training set from 4 to 16 trajectories is associated with better aggregate performance, but increasing it further to 32 does not produce an additional aggregate improvement. This should not be interpreted as evidence that 16 trajectories are intrinsically optimal, because the symbolic-regression search budget and all other benchmark settings remain fixed.
 
-The paired model-level comparison from 4 to 32 trajectories further shows why a universal monotonic relationship between training-set size and structural recovery would be inappropriate:
+The aggregate means above summarize the overall behavior of the 66-model cohort, but they do not show whether individual models respond consistently to additional training data. To examine this, a paired model-level analysis compares each model's structural-recovery score using 4 training trajectories with its score using 32 training trajectories. For each metric, a model is classified as **improved** if its score is higher at 32 trajectories, **unchanged** if the score is the same, and **worsened** if its score is lower. The table therefore shows how many of the 66 models fall into each category and tests whether the aggregate trend is shared consistently across individual models:
 
 | Metric | Improved | Unchanged | Worsened |
 |---|---:|---:|---:|
@@ -537,7 +537,7 @@ The paired model-level comparison from 4 to 32 trajectories further shows why a 
 | Numerator monomial F1 | 33/66 | 10/66 | 23/66 |
 | Interaction F1 | 23/66 | 27/66 | 16/66 |
 
-The model-level responses are heterogeneous. For dependency F1, for example, 24 of 66 models improve from 4 to 32 trajectories, 27 remain unchanged, and 15 worsen. Numerator-monomial recovery improves for 33 models but worsens for 23, while interaction recovery improves for 23 and worsens for 16. Thus, even when an aggregate mean increases, a substantial fraction of individual models may show no improvement or may perform worse.
+The model-level responses are heterogeneous. No structural metric improves for all 66 models when the training set increases from 4 to 32 trajectories. Numerator-monomial F1 shows the largest number of improvements (33/66), but 23 models still worsen. Dependency and interaction F1 each remain unchanged for 27 models, while 15 and 16 models, respectively, worsen. Thus, the aggregate trends do not describe a uniform response to additional training data: depending on the model and structural metric, additional trajectories may improve recovery, leave it unchanged, or coincide with worse recovery.
 
 Together, these results indicate that mechanistic recovery is not a single all-or-none outcome. PySR can recover broad state dependencies more reliably than finer algebraic structure, and additional training trajectories affect different biological models differently. The stricter question of whether the complete inferred RHS is numerically or algebraically equivalent to the reference equation is examined next.
 
