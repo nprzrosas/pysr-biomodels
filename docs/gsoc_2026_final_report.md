@@ -256,70 +256,174 @@ This coordinate search starts from a single initial combination of RHS candidate
 
 ## 9. Evaluation framework
 
-The final framework reports complementary dimensions. None substitutes for all the others.
+There is no single definition of successful ODE recovery. An inferred system may reproduce the trajectories of the original model while using different mathematical expressions, or it may recover important structural components without being exactly algebraically identical to the original equations. The benchmark therefore evaluates five complementary questions:
 
-### Evaluation metrics
+1. **Predictive dynamics:** Does the inferred ODE system reproduce the trajectories of the reference model?
+2. **State-dependency recovery:** Does each inferred equation depend on the same dynamic state variables as the corresponding reference equation?
+3. **Functional-form recovery:** Does the inferred equation recover important mathematical components of the reference equation, such as monomials, multiplicative interactions, or state-dependent denominators?
+4. **Numerical equivalence:** Do the inferred and reference right-hand sides (RHSs) produce approximately the same derivative values at sampled points in state space?
+5. **Exact algebraic equivalence:** After symbolic simplification, are the inferred and reference RHSs mathematically identical?
 
-#### Predictive dynamics
+These questions measure different properties of an inferred model. In particular, good trajectory prediction does not by itself demonstrate recovery of the equation that generated those trajectories.
 
-Reference and inferred systems are integrated with SciPy's `solve_ivp` using LSODA, relative tolerance `1e-7`, absolute tolerance `1e-9`, and at most 8,000 RHS evaluations per trajectory. For state $j$ in trajectory $k$, sampled at $T$ time points, the state-specific trajectory RMSE is
+### Predictive dynamics
+
+Predictive dynamics are evaluated by numerically integrating both the reference and inferred ODE systems from the same initial conditions. Integration uses SciPy's `solve_ivp` with the LSODA solver, a relative tolerance of `1e-7`, an absolute tolerance of `1e-9`, and at most 8,000 RHS evaluations per trajectory.
+
+The trajectory error is calculated in several steps so that errors from states with very different numerical magnitudes can be compared fairly.
+
+First, for state \(j\) in trajectory \(k\), sampled at \(T\) time points, the root-mean-square error (RMSE) measures the typical difference between the inferred trajectory, \(\hat{x}_{k,j}(t)\), and the reference trajectory, \(x_{k,j}(t)\):
 
 $$
-\operatorname{RMSE}_{k,j} =
-\sqrt{\frac{1}{T}\sum_{t=1}^{T}\left(\hat{x}_{k,j}(t)-x_{k,j}(t)\right)^2}.
+\mathrm{RMSE}_{k,j}
+=
+\sqrt{
+\frac{1}{T}
+\sum_{t=1}^{T}
+\left(
+\hat{x}_{k,j}(t)-x_{k,j}(t)
+\right)^2
+}.
 $$
 
-The normalization scale is computed from training data only,
+RMSE is expressed in the numerical scale of the corresponding state. Because different biological variables can have very different magnitudes, the benchmark normalizes this error using a state-specific scale calculated from training data only:
 
 $$
-s_j = \max_{r\in\mathcal{D}_{\mathrm{train}}}|x_{r,j}|,
+s_j
+=
+\max_{r\in\mathcal{D}_{\mathrm{train}}}
+|x_{r,j}|,
 \qquad
-\operatorname{NRMSE}_{k,j} = \frac{\operatorname{RMSE}_{k,j}}{s_j}.
+\mathrm{NRMSE}_{k,j}
+=
+\frac{\mathrm{RMSE}_{k,j}}{s_j}.
 $$
 
-With $J$ dynamic states, the trajectory macro-NRMSE is the unweighted state mean,
+Here, \(s_j\) is the largest absolute training value observed for state \(j\). Using training data only prevents validation or held-out data from influencing the normalization.
+
+For a model with \(J\) dynamic states, the normalized errors are then averaged across states to obtain one error value for trajectory \(k\):
 
 $$
-M_k = \frac{1}{J}\sum_{j=1}^{J}\operatorname{NRMSE}_{k,j}.
+M_k
+=
+\frac{1}{J}
+\sum_{j=1}^{J}
+\mathrm{NRMSE}_{k,j}.
 $$
 
-For either validation or held-out testing, the system macro-NRMSE is the unweighted mean over its $K=8$ trajectories, $K^{-1}\sum_{k=1}^{K}M_k$. The aggregate is finite only when all eight trajectories integrate successfully; otherwise the implementation records failed status and an infinite system macro-NRMSE.
+This quantity is called the **trajectory macro-NRMSE**. The term *macro* indicates that each state contributes equally to the average rather than states being weighted according to their numerical magnitude or number of observations.
 
-#### State-dependency recovery
-
-For each RHS, the evaluator compares the set of dynamic-state symbols in the inferred expression with the ground-truth set. Given true-positive, false-positive, and false-negative counts,
+Finally, the benchmark evaluates \(K=8\) trajectories in either the validation or held-out partition and averages their trajectory scores:
 
 $$
-P=\frac{TP}{TP+FP},\qquad
-R=\frac{TP}{TP+FN},\qquad
-F_1=\frac{2PR}{P+R},
+M_{\mathrm{system}}
+=
+\frac{1}{K}
+\sum_{k=1}^{K}
+M_k,
+\qquad K=8.
 $$
 
-where the implementation evaluates F1 using the equivalent count expression $2TP/(2TP+FP+FN)$. Precision is undefined (`NaN`) when no dependencies are inferred, and recall is undefined when the ground-truth set is empty. If both sets are empty, F1 is defined as 1; if only one is empty, F1 is 0. Model-level dependency F1 macro-averages RHS scores. A high score says that the same states appear; it does not establish the same powers, interactions, coefficients, or rational form.
+This is the **system macro-NRMSE**, which provides one predictive-error score for the complete inferred ODE system. Lower values indicate closer agreement with the reference trajectories.
 
-#### Functional-form recovery
+The same mathematical definition has two different roles in the workflow. **Validation macro-NRMSE** is used during the coupled-system selection described in Section 8. After the selected equations are frozen, **held-out macro-NRMSE** measures generalization on initial conditions that did not participate in fitting or system selection. The held-out score therefore does not influence which equations are selected.
 
-After symbolic cancellation, the evaluator separately compares:
+A system macro-NRMSE is considered finite only when all eight trajectories in the corresponding partition integrate successfully. If any of the eight integrations fails, the implementation records a failed status and an infinite system macro-NRMSE. Integration success is therefore tracked separately from the magnitude of the trajectory error.
 
-- numerator monomial signatures represented by sets of state-exponent patterns, with constant-only terms recorded but excluded from monomial precision, recall, and F1;
-- multiplicative interactions represented by pairs of distinct states that co-occur in a numerator monomial;
-- rational-structure match, a Boolean comparison of whether each denominator has dynamic-state dependence;
-- denominator dependencies, compared as sets of state symbols; and
-- numerator and denominator polynomial degrees and errors.
+### State-dependency recovery
 
-The report uses model-level macro summaries so models with more state equations do not automatically receive more weight. These metrics expose specific structural similarities; they do not constitute complete equation identity.
+Predictive agreement does not reveal whether PySR recovered the same variables in the equations. State-dependency recovery therefore asks a simpler structural question: **does an inferred RHS depend on the same dynamic states as the corresponding reference RHS?**
 
-#### Numerical equivalence
+For example, suppose a reference RHS depends on states \(A\) and \(B\), while the inferred RHS depends on \(A\) and \(C\). State \(A\) is a true positive (TP) because it appears in both dependency sets. State \(C\) is a false positive (FP) because it appears only in the inferred equation, and state \(B\) is a false negative (FN) because the inferred equation failed to recover it.
 
-For each evaluable RHS, true and inferred expressions are evaluated at 32 deterministic positive state vectors. Each state is independently sampled as $10^u$, $u \sim U(-1,1)$, with seed 4040. The RHS is marked numerically equivalent only if all 32 evaluations are valid and each satisfies `np.isclose` with relative tolerance `1e-6` and absolute tolerance `1e-9`.
+From these counts, precision, recall, and F1 are calculated as
 
-This finite sample can identify close behavior over the sampled region, but cannot prove identity throughout state space.
+$$
+P
+=
+\frac{TP}{TP+FP},
+\qquad
+R
+=
+\frac{TP}{TP+FN},
+\qquad
+F_1
+=
+\frac{2PR}{P+R}.
+$$
 
-#### Exact algebraic equivalence
+The implementation evaluates F1 using the equivalent count expression
 
-The exact evaluator canonicalizes expressions with SymPy, subtracts the inferred RHS from the ground-truth RHS, and applies rational combination, cancellation, and simplification. A match requires the resulting difference to equal zero directly or via SymPy's symbolic equality test. It applies no numerical coefficient tolerance. Expressions that are numerically close but not symbolically identical remain nonmatches.
+$$
+F_1
+=
+\frac{2TP}{2TP+FP+FN}.
+$$
 
-Predictive accuracy, component-level structural recovery, finite-point numerical equivalence, and exact algebraic equivalence are therefore distinct evaluation dimensions, not levels in a recovery hierarchy.
+Precision answers: *of the state dependencies inferred by PySR, how many were present in the reference equation?* Recall answers: *of the state dependencies present in the reference equation, how many were recovered?* F1 combines these two quantities into a single score.
+
+Precision is undefined (`NaN`) when no dependencies are inferred, and recall is undefined when the reference dependency set is empty. If both dependency sets are empty, F1 is defined as 1 because the absence of state dependencies was correctly recovered. If only one set is empty, F1 is 0.
+
+Model-level dependency F1 is calculated by macro-averaging the RHS-level F1 scores, giving each state equation equal weight. Importantly, this metric considers only **which state variables appear**. For example, \(AB\), \(A+B\), and \(A/B\) all involve the dependency set \(\{A,B\}\), even though their mathematical forms are very different. A high dependency F1 therefore does not establish recovery of powers, interactions, coefficients, or rational structure.
+
+### Functional-form recovery
+
+To examine mathematical structure in greater detail, the evaluator compares specific components of the inferred and reference RHSs after symbolic cancellation.
+
+Consider, for example, an expression of the form
+
+$$
+\frac{A^2B+C}{1+D}.
+$$
+
+This expression contains several kinds of structural information. The numerator contains the monomials \(A^2B\) and \(C\); \(A\) and \(B\) participate in a multiplicative interaction in the first monomial; and state \(D\) appears in the denominator, making the expression rational with respect to the dynamic states.
+
+The evaluator therefore compares:
+
+- **numerator monomial signatures:** state-exponent patterns describing the variable composition and powers of numerator terms; constant-only terms are recorded but excluded from monomial precision, recall, and F1;
+- **multiplicative interactions:** pairs of distinct states that occur together within a numerator monomial;
+- **rational structure:** whether the denominator contains dynamic-state dependence;
+- **denominator dependencies:** which dynamic states appear in the denominator; and
+- **polynomial degree information:** the numerator and denominator polynomial degrees and their corresponding errors.
+
+These component-level metrics distinguish equations that contain similar biological or mathematical structure even when the complete expressions are not identical. The report uses model-level macro summaries so that models containing more state equations do not automatically receive greater weight. Functional-form recovery should therefore be interpreted as evidence of specific structural similarities, not as proof that the complete equation was recovered.
+
+### Numerical equivalence
+
+State dependencies and functional-form components describe structural similarity, but two expressions can also be compared directly by evaluating the derivatives they produce.
+
+For each evaluable RHS, the reference and inferred expressions are evaluated at 32 deterministic positive state vectors. Each state value is independently generated as
+
+$$
+x = 10^u,
+\qquad
+u \sim U(-1,1),
+$$
+
+using random seed 4040. Each state value is therefore sampled independently and uniformly in log10 space over the interval from \(0.1\) to \(10\). These values are synthetic state-space evaluation points used only for the numerical-equivalence diagnostic; unlike the initial-condition perturbations described in Section 6, they are not scaled relative to each model's nominal initial conditions.
+
+At every sampled state vector, the inferred and reference derivative values are compared using NumPy's `np.isclose`, with relative tolerance `1e-6` and absolute tolerance `1e-9`. An RHS is marked numerically equivalent only when all 32 evaluations are valid and all 32 comparisons satisfy these tolerances.
+
+This test asks whether the two expressions behave approximately the same at the sampled points. It is deliberately stronger than agreement at a single point but remains a finite numerical test. Passing it does **not** prove that the expressions are identical everywhere in state space.
+
+This numerical-equivalence test is a post-hoc diagnostic. It does not participate in PySR fitting or coupled-system selection.
+
+### Exact algebraic equivalence
+
+The strictest comparison asks whether the inferred and reference RHSs are mathematically the same expression, allowing for algebraically equivalent ways of writing that expression.
+
+For each evaluable RHS, the exact evaluator uses SymPy to canonicalize the expressions, subtracts the inferred RHS from the reference RHS, and applies rational combination, cancellation, and symbolic simplification. If the simplified difference is exactly zero, either directly or through SymPy's symbolic equality test, the RHS is classified as an exact algebraic match.
+
+For example, expressions that differ only because one has been algebraically expanded or factored can still be recognized as equivalent after symbolic simplification. In contrast, an inferred coefficient that is merely close to the reference coefficient does not qualify as an exact match. No numerical coefficient tolerance is applied.
+
+Exact algebraic equivalence is also evaluated only after model selection and therefore does not influence which PySR equations are selected.
+
+### How the evaluation dimensions relate
+
+The five evaluation dimensions answer different questions and should not be interpreted as successive levels of a single recovery hierarchy. Predictive dynamics measure whether the complete inferred system reproduces trajectories. State-dependency and functional-form metrics examine progressively more detailed aspects of equation structure. Numerical equivalence tests whether individual RHSs produce approximately the same derivative values over a finite sample of state space, while exact algebraic equivalence tests whether the inferred and reference RHSs are symbolically identical.
+
+This separation is important because an inferred system can achieve very low held-out trajectory error without exactly recovering the equations that generated those trajectories. Distinguishing predictive performance from mechanistic recovery is therefore central to the interpretation of the benchmark results.
+
 
 ## 10. Expanded-100 execution outcomes
 
