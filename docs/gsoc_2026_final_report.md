@@ -188,6 +188,8 @@ Initial-condition factors span 0.1 to 10 times each positive nominal dynamic sta
 | Validation | 2020 | 8 | Select one coupled system |
 | Held-out test | 3030 | 8 | Evaluate the frozen system |
 
+A random seed fixes the initial state of a pseudorandom number generator, making a stochastic procedure reproducible. Here, the seeds 1010, 2020, and 3030 were used by the benchmark's initial-condition sampling procedure to generate the training, validation, and held-out test designs, respectively; these are not three PySR seeds. Their numerical values have no special scientific meaning and simply allow the same sampling designs to be regenerated. Separately, the PySR search itself used a fixed seed of 1010, as described below, to make the symbolic-regression search reproducible.
+
 All training conditions use the same maximum 32-trajectory ordering, so smaller sets are nested within larger ones. Validation points are selected against the training design, and held-out points against the combined training and validation designs.
 
 Before any test simulation is materialized, the runner validates that all selected systems and checkpoints are frozen. Held-out data are not used to choose candidates, refit coefficients, tune hyperparameters, or reselect a system.
