@@ -598,11 +598,19 @@ These results also place the structural metrics from Section 12 in context. The 
 
 ## 14. Case studies
 
-These cases illustrate separations among predictive, component-level, numerical, and exact outcomes. They are explanatory examples, not estimates of how frequently each pattern occurs.
+The aggregate results in the previous sections summarize performance across many models, but they do not show how the different definitions of recovery relate within an individual biological system. The purpose of these case studies is therefore to examine several contrasting inference outcomes at the model level and make the distinction between successful integration, predictive accuracy, structural recovery, numerical equivalence, and exact algebraic recovery concrete.
+
+Figure 6 compares three deliberately selected models that exhibit contrasting behaviors. They were not selected to estimate how common these behaviors are in the benchmark, nor should they be interpreted as the three best or worst models. Instead, each was chosen to illustrate a different relationship among the evaluation criteria. BIOMD0000000156 shows strong predictive and structural recovery without exact algebraic identity; BIOMD0000000319 shows that identifying the correct state dependencies does not guarantee recovery of the detailed functional form; and BIOMD0000000728 shows that successful numerical integration does not guarantee accurate prediction or mechanistic recovery.
+
+To read the figure, begin with the upper row. Each point represents the held-out macro-NRMSE obtained with 4, 8, 16, or 32 training trajectories. Lower values indicate closer agreement between inferred and reference trajectories; because the errors span several orders of magnitude, the vertical axis is logarithmic. The annotation below each upper panel reports whether all eight held-out trajectories could be integrated successfully. Integration success is reported separately from error because an ODE system can integrate without reproducing the reference dynamics accurately.
+
+The lower row evaluates equation structure rather than trajectories. Dependency F1 asks whether the inferred equations use the correct dynamic state variables. Monomial F1 asks whether the numerator contains the correct state-variable products and powers, while interaction F1 focuses on multiplicative interactions among states. Rational accuracy evaluates whether rational state dependence is represented correctly. For these structural scores, values closer to 1 indicate stronger agreement with the reference equations, whereas values closer to 0 indicate weaker agreement. The annotation inside each lower panel additionally reports, for the 32-trajectory condition, how many RHS equations pass the numerical- and exact-equivalence tests introduced in Section 9.
+
+Reading the upper and lower panels together is the main purpose of the figure. If trajectory prediction, structural recovery, numerical equivalence, and exact algebraic recovery always agreed, the additional evaluation layers would provide little information. These three examples instead show that the layers can separate substantially, motivating the multi-level evaluation framework used throughout this benchmark.
 
 ![Predictive and structural comparison of three illustrative case studies](figures/06_case_studies.svg)
 
-*Figure 6. Three illustrative cases across all four training sizes. Held-out macro-NRMSE uses a logarithmic scale; structural panels separate dependency, monomial, interaction, and rational-form scores. These examples do not estimate population frequencies.*
+*Figure 6. Model-level comparison of three deliberately selected illustrative cases across all four training-set sizes. The upper panels show held-out macro-NRMSE on a logarithmic scale and report held-out integration success. The lower panels show dependency F1, numerator monomial F1, interaction F1, and rational-structure accuracy; annotations report numerical and exact equivalence of the right-hand-side (RHS) equations for the 32-trajectory condition. The cases were selected to illustrate contrasting relationships among evaluation criteria, not to estimate the frequency of these patterns in the benchmark.*
 
 ### BIOMD0000000156
 
