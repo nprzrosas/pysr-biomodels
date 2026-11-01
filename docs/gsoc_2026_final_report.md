@@ -212,22 +212,43 @@ The current pipeline is:
 2. create deterministic training, validation, and test initial conditions;
 3. simulate development data and extract exact derivatives;
 4. compute state scales from training data only;
-5. fit one PySR candidate set per state RHS using all dynamic states as features;
-6. transform retained expressions back to original coordinates and units;
-7. select a coupled system by validation integration;
-8. freeze and checkpoint the selected system;
-9. load held-out initial conditions and evaluate the frozen system; and
-10. compare selected RHSs with mechanistic ground truth where feature spaces are compatible.
+5. fit one PySR candidate set for each state equation's right-hand side (RHS)—the mathematical expression that defines that state's time derivative—using all dynamic states as input features;
+6. transform retained expressions back to the original state coordinates and units;
+7. select a coupled ODE system by integrating candidate combinations on the validation trajectories;
+8. freeze and checkpoint the selected system so that its equations can no longer change;
+9. load held-out initial conditions and evaluate the frozen system on previously unused trajectories; and
+10. compare the selected RHSs with the known equations of the original SBML model, referred to here as the *mechanistic ground truth*, where the inferred and reference equations use compatible feature spaces.
 
 ![PySR benchmark pipeline and data boundaries](figures/02_refactored_pipeline.svg)
 
 *Figure 2. Benchmark workflow. Validation trajectories participate in coupled-system selection; held-out trajectories are opened only after selection is frozen, and symbolic ground truth is used only for post-hoc mechanistic analysis.*
 
-The configured PySR version is 1.5.9. Each RHS search uses 60 iterations; binary operators `+`, `-`, `*`, and `/`; no unary operators; maximum expression size 20; parsimony 0; constant optimization; seed 1010; and deterministic serial execution. Up to eight candidates are retained per RHS, ranked stably by training loss. The expanded-run manifest does not independently record the imported package version, so 1.5.9 is the pinned and resolved project configuration rather than a separately logged runtime measurement.
+### PySR search and optimization
 
-State scales are maximum absolute values computed only from training data. Inputs are normalized by their state scales and each derivative target by its corresponding state scale. Retained expressions are then symbolically back-transformed. The workflow does not perform post-selection coefficient refitting.
+PySR performs symbolic regression by searching over mathematical expressions rather than assuming a predefined equation form. Its SymbolicRegression.jl backend uses an evolutionary search in which populations of candidate expressions are progressively modified and evaluated. In this benchmark, each state derivative is inferred separately, with all dynamic states available as possible input variables. The search is restricted to the binary operators `+`, `-`, `*`, and `/`, meaning operators that combine two inputs, and uses no unary operators such as `exp`, `log`, or `sin`, which act on a single input. Expression size is limited to 20 nodes, constraining the structural complexity of candidate equations.
 
-Coupled-system selection begins from the top-ranked candidate for every RHS and performs deterministic coordinate search over states. A candidate is judged by integrating the coupled system on validation trajectories. Ties use validation macro-NRMSE, total complexity, total training loss, and a canonical system identifier. This single-start procedure is reproducible for fixed inputs, but is not guaranteed to find the globally optimal RHS combination.
+The configured PySR version is 1.5.9. Each RHS search uses 60 iterations, a fixed random seed of 1010, and deterministic serial execution. The explicit parsimony coefficient is set to 0. In symbolic regression, *parsimony* refers to penalizing more complex expressions so that simpler equations are preferred when appropriate. Setting this coefficient to zero disables this explicit complexity penalty in the objective; however, candidate expressions remain structurally constrained by the maximum expression size of 20.
+
+PySR optimizes two related aspects of a candidate equation: its symbolic structure and the numerical constants appearing within that structure. The evolutionary search explores alternative mathematical structures, while PySR's internal constant optimizer adjusts numerical constants to reduce training loss for a given structure. For example, if the symbolic search proposes an expression of the form $a x + b y$, constant optimization determines numerical values for $a$ and $b$ that improve agreement with the exact training derivatives. In this configuration, PySR uses the BFGS (Broyden-Fletcher-Goldfarb-Shanno) algorithm for this numerical optimization. BFGS is an iterative optimization method that uses information about how the loss changes with the constants, together with an approximation of the local curvature of the loss function, to update those constants in directions expected to reduce the loss. This optimization occurs during PySR candidate fitting and is distinct from a later coefficient-refitting step: once candidate equations leave the PySR search and the coupled system is selected, this workflow does not refit their coefficients.
+
+Up to eight candidate expressions are retained for each RHS and ranked deterministically by training loss, which measures disagreement between a candidate derivative and the exact derivative values in the training data. These retained state-wise candidates provide the alternatives considered during subsequent coupled-system selection. The expanded-run manifest does not independently record the imported PySR package version, so version 1.5.9 is the pinned and resolved project configuration rather than a separately logged runtime measurement.
+
+### Scaling and transformation back to model coordinates
+
+Because state variables can differ substantially in numerical magnitude, the symbolic-regression problem is solved in scaled coordinates. For each state, the *state scale* is the maximum absolute value observed for that state in the training data. Input state values are divided by their corresponding scales, and each derivative target is divided by the scale of the state whose derivative is being modeled. These scales are calculated from training data only, so information from validation or held-out trajectories does not enter the fitting transformation.
+
+Expressions retained by PySR are then symbolically back-transformed from these normalized coordinates to the original state coordinates and units. This produces equations that can be integrated and interpreted in the coordinate system of the original SBML model.
+
+### Coupled-system selection
+
+Although PySR fits candidate expressions separately for each state derivative, a biological ODE model is a *coupled system*: the equations interact because the derivative of one state can depend on other states. Consequently, choosing the individually best-fitting RHS for every state does not necessarily produce the best dynamical system when the equations are integrated together.
+
+The selector therefore begins with the top-ranked PySR candidate for every RHS and performs a deterministic *coordinate search*. Here, coordinate search means changing the selected equation for one state at a time while keeping the equations for the other states fixed, then testing whether that substitution improves the performance of the complete coupled system on the validation trajectories. Candidate systems are evaluated by numerical integration—that is, by solving the inferred ODE system over time—rather than by derivative-fitting loss alone.
+
+The primary validation criterion is macro-NRMSE (macro normalized root-mean-square error), a trajectory-error metric normalized to account for differences in state magnitude and aggregated across the system. When candidate systems are tied, the selector uses validation macro-NRMSE, total expression complexity, total PySR training loss, and finally a canonical system identifier to obtain a deterministic ordering.
+
+This coordinate search starts from a single initial combination of RHS candidates. It is therefore reproducible for fixed inputs but is not an exhaustive search over every possible combination and is not guaranteed to identify the globally optimal coupled system. After selection, the chosen equations are frozen before held-out trajectories are loaded. The held-out data therefore measure generalization of an already selected system rather than contributing to model selection.
+
 
 ## 9. Evaluation framework
 
