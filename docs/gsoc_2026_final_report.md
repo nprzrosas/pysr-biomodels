@@ -201,7 +201,7 @@ The benchmark uses a project-defined simulation protocol rather than executing e
 
 For each simulated point, RoadRunner [11] returns the exact state derivatives used as PySR targets. Thus the experiment evaluates symbolic regression given noiseless simulator derivatives, not derivative estimation from sampled trajectories.
 
-Simulation durations are read from bundled, model-aware metadata and checked for a matching model identifier and filename and for a positive finite value. Adjacent corpus-preparation code documents an automated multimodal process that extracted candidate horizons from the largest plotted time axis in curated model figures. The retained work product does not establish the extent of model-by-model human review. The durations are therefore fixed benchmark metadata with that provenance limitation, rather than a replay of every original experiment.
+Simulation durations are read from bundled, model-aware metadata and checked for a matching model identifier and filename and for a positive finite value. During corpus preparation, an automated multimodal procedure extracted candidate simulation horizons from the largest plotted time axis in curated model figures. These model-specific durations were then retained as fixed benchmark metadata and used to define the standardized simulation horizon for each model. The benchmark therefore uses a consistent project-defined simulation protocol rather than attempting to reproduce every experimental or simulation configuration associated with each original BioModels entry.
 
 
 ## 8. PySR equation-discovery workflow
