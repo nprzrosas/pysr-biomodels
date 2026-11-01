@@ -386,6 +386,8 @@ The evaluator therefore compares:
 - **denominator dependencies:** which dynamic states appear in the denominator; and
 - **polynomial degree information:** the numerator and denominator polynomial degrees and their corresponding errors.
 
+For structural components represented as sets, the same precision, recall, and F1 definitions introduced above for state dependencies are reused. What changes is the type of object treated as a set element. Dependency F1 compares dynamic state variables, numerator monomial F1 compares numerator monomial signatures, and interaction F1 compares multiplicative state-state interactions. Thus, the meanings of TP, FP, and FN depend on the structural component being evaluated, but the F1 formula itself is unchanged. Other structural quantities, such as rational-structure agreement and polynomial-degree error, are evaluated with their corresponding non-F1 metrics.
+
 These component-level metrics distinguish equations that contain similar biological or mathematical structure even when the complete expressions are not identical. The report uses model-level macro summaries so that models containing more state equations do not automatically receive greater weight. Functional-form recovery should therefore be interpreted as evidence of specific structural similarities, not as proof that the complete equation was recovered.
 
 ### Numerical equivalence
