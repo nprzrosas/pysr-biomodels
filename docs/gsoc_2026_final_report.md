@@ -459,7 +459,9 @@ Most importantly, **workflow completion is not the same as equation recovery**. 
 
 ## 11. Predictive performance
 
-The table summarizes the 75 workflow-complete models. A held-out success means that the selected system completed all eight test trajectories. Median macro-NRMSE is calculated only among systems with finite full-test scores.
+The held-out trajectories provide the final test of predictive generalization because they are not used to fit the PySR equations or to select among candidate coupled systems. A full held-out success means that the selected system can be numerically integrated for all eight held-out trajectories. Among these successful systems, trajectory accuracy is summarized by macro-NRMSE: lower values indicate closer agreement between the inferred and reference trajectories. Because this metric averages normalized errors across states and trajectories, it should be interpreted as a comparative error score rather than as a direct percentage error.
+
+The table summarizes the 75 workflow-complete models. Median macro-NRMSE is calculated only among systems with finite full held-out scores.
 
 | Training trajectories | Full held-out successes | Median held-out macro-NRMSE |
 |---:|---:|---:|
@@ -469,21 +471,32 @@ The table summarizes the 75 workflow-complete models. A held-out success means t
 | 32 | 71/75 | 0.026234 |
 | **All conditions** | **284/300** | — |
 
-The median is primary because finite errors are strongly right-skewed; a technically successful case below has macro-NRMSE above 1,000. Under the fixed configuration, the median decreases from 4 through 16 trajectories and then increases slightly at 32. The 16-trajectory condition also has the most full held-out successes. This supports only the conclusion that 16 performed best among the tested sizes for this setup, not that it is universally optimal.
+The median is used as the primary summary because the finite error distribution is strongly right-skewed; at least one technically successful condition has macro-NRMSE above 1,000. Under the fixed benchmark configuration, median held-out error decreases from 0.042832 with 4 training trajectories to 0.028292 with 8 and 0.024344 with 16, before increasing slightly to 0.026234 with 32. The 16-trajectory condition also has the highest full held-out success rate, with 73/75 models (97.3%). Among the four tested training-set sizes, the 16-trajectory condition had both the lowest conditional median held-out macro-NRMSE and the highest full held-out success rate under this fixed search configuration. This descriptive comparison does not establish 16 trajectories as a universally optimal training-set size.
 
 ![Predictive and mechanistic performance by training-set size](figures/04_predictive_and_mechanistic_metrics.svg)
 
 *Figure 4. Predictive and mechanistic results across training-set sizes. Predictive panels use the 75 workflow-complete models; systems with full held-out integration define the NRMSE medians. Mechanistic curves are model-level means over the 66 compatible models.*
 
+Figure 4 separates three aspects of performance. Panel A shows the conditional median held-out macro-NRMSE among systems that successfully completed all eight held-out trajectories. Panel B shows the complementary question of numerical robustness: the fraction of the 75 models that completed all eight trajectories. The two measures should be interpreted separately. For example, the 8-trajectory condition has a lower median error than the 4-trajectory condition, but fewer models achieve full held-out integration (69/75 versus 71/75). Thus, lower error among successful systems does not necessarily imply a higher probability of successful integration.
+
+Panel C previews the structural-recovery results analyzed in Section 12. State-dependency F1 is consistently higher than the monomial- and interaction-level F1 scores, indicating that PySR more often identifies **which state variables participate in an RHS** than the precise mathematical way in which those variables are combined. Most of the structural metrics improve from 4 to 16 training trajectories and then decrease at 32, again showing that performance is not monotonic with training-set size under a fixed symbolic-regression search budget.
+
+The aggregate trend also does not mean that every individual model improves when more training trajectories are supplied. Comparing the 4- and 32-trajectory conditions, validation macro-NRMSE improves for 43 models and worsens for 28 among the 71 models with finite scores at both endpoints. For held-out performance, 44 improve and 24 worsen among the 68 models with finite scores at both endpoints. In addition, 62 of the 75 workflow-complete models achieve full held-out integration at all four training-set sizes. These paired results show substantial model-to-model heterogeneity: increasing the amount of training data can improve predictive accuracy for many models, but it does not produce a uniform or monotonic response across the benchmark.
+
 ### Concrete example: predictive agreement versus exact symbolic recovery
 
-Figure 5 shows one held-out trajectory for BIOMD0000000156 under `train_32`. The model completed all 8 held-out trajectories, with an overall held-out macro-NRMSE of `3.6540933364804454e-06`. The displayed `test_003` trajectory has macro-NRMSE `3.763991365656924e-06`. It was chosen from the official trajectory metrics as the lower-error member of the two central trajectories among eight, not by visual inspection.
+Figure 5 illustrates what a highly successful reconstruction looks like for BIOMD0000000156 under `train_32`. The selected system completes all eight held-out trajectories with an overall held-out macro-NRMSE of `3.6540933364804454e-06`. The displayed `test_003` trajectory has macro-NRMSE `3.763991365656924e-06`; it was selected from the official trajectory metrics as the lower-error member of the two central trajectories among the eight held-out cases, rather than being chosen by visual inspection.
 
 ![Held-out trajectory reconstruction and canonical equations for BIOMD0000000156](figures/05_heldout_trajectory_example.svg)
 
 *Figure 5. Observed SBML and selected inferred-system trajectories for the held-out `test_003` initial condition, together with the three canonical RHS comparisons. The near-overlapping curves measure predictive agreement for this example; they do not establish exact equation identity.*
 
-For each of the three RHSs, dependency F1, numerator monomial F1, and interaction F1 equal 1, and rational structure matches. All 3/3 RHSs pass the finite-point numerical-equivalence diagnostic, whereas 0/3 are exact algebraic matches. The equations show the small inferred-coefficient differences responsible for that distinction. Thus the exact nonmatches are not failures of trajectory prediction, and this single illustrative case does not estimate population-level performance.
+The blue reference trajectories and orange inferred trajectories are nearly indistinguishable at the scale of the plot, demonstrating excellent predictive agreement on an initial condition that was not used for fitting or system selection. The structural metrics tell a similarly strong, but distinct, story. For each of the three RHSs, dependency F1, numerator monomial F1, and interaction F1 equal 1, and the rational structure matches. As defined in Section 9, these F1 scores use the same precision-recall framework but compare different structural objects; a value of 1 therefore indicates perfect set-level agreement for the corresponding structural component.
+
+However, structural and predictive agreement do not imply exact symbolic identity. All 3/3 RHSs pass the finite-point numerical-equivalence diagnostic, but 0/3 are exact algebraic matches. Figure 5 shows why: the inferred equations reproduce the same terms and very similar coefficients, but small coefficient differences remain. Under the deliberately strict exact-recovery criterion, those expressions are therefore not algebraically identical to the SBML reference equations.
+
+This example captures a central distinction in the benchmark. An inferred ODE system can generalize accurately to unseen trajectories, recover important mechanistic structure, and be numerically almost indistinguishable from the reference RHS while still failing exact symbolic recovery. BIOMD0000000156 is an illustrative example of that distinction, not an estimate of population-level recovery performance.
+
 
 ## 12. Mechanistic recovery
 
