@@ -332,7 +332,7 @@ A system macro-NRMSE is considered finite only when all eight trajectories in th
 
 ### State-dependency recovery
 
-Predictive agreement does not reveal whether PySR recovered the same variables in the equations. State-dependency recovery therefore asks a simpler structural question: **does an inferred RHS depend on the same dynamic states as the corresponding reference RHS?**
+Predictive agreement does not reveal whether PySR recovered the same variables in the equations. State-dependency recovery therefore asks a simpler structural question: **does an inferred RHS depend on the same dynamic states as the corresponding reference RHS?** This evaluation builds on the broader idea of structural or support recovery used in sparse dynamical-system identification, where the active components of an inferred model are compared with those of the known generating system [1,12,13]. Because PySR produces free-form symbolic expressions rather than selecting terms from a fixed candidate-function library, this benchmark defines support at the level of dynamic-state dependencies. For each RHS, the dynamic state variables appearing in the reference and inferred expressions are treated as sets and compared using precision, recall, and F1.
 
 For example, suppose a reference RHS depends on states $A$ and $B$, while the inferred RHS depends on $A$ and $C$. State $A$ is a true positive (TP) because it appears in both dependency sets. State $C$ is a false positive (FP) because it appears only in the inferred equation, and state $B$ is a false negative (FN) because the inferred equation failed to recover it.
 
@@ -701,3 +701,7 @@ I thank mentors Augustin Luna, Eran Agmon, Mark Kittisopikul, and Matthias Köni
 10. Hucka M, Bergmann FT, Dräger A, et al. **The Systems Biology Markup Language (SBML): Language Specification for Level 3 Version 2 Core.** *Journal of Integrative Bioinformatics*. 2018;15(1):20170081. doi:10.1515/jib-2017-0081.
 
 11. Somogyi ET, Bouteiller JM, Glazier JA, et al. **libRoadRunner: a high performance SBML simulation and analysis library.** *Bioinformatics*. 2015;31(20):3315-3321. doi:10.1093/bioinformatics/btv363.
+
+12. Mangan NM, Brunton SL, Proctor JL, Kutz JN. **Inferring Biological Networks by Sparse Identification of Nonlinear Dynamics.** *IEEE Transactions on Molecular, Biological and Multi-Scale Communications*. 2016;2(1):52-63. doi:10.1109/TMBMC.2016.2633265.
+
+13. Pantazis Y, Tsamardinos I. **A unified approach for sparse dynamical system inference from temporal measurements.** *Bioinformatics*. 2019;35(18):3387-3396. doi:10.1093/bioinformatics/btz065.
