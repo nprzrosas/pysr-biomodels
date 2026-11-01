@@ -10,7 +10,7 @@ description: Evaluating and Improving Symbolic Regression Methods for Biological
 |---|---|
 | Program | Google Summer of Code 2026 |
 | Organization | National Resource for Network Biology (NRNB) |
-| Contributor | Norma Pérez Rosas |
+| Contributor | Norma C Pérez Rosas |
 | Mentors | Augustin Luna, Eran Agmon, Mark Kittisopikul, and Matthias König |
 | Work product | PySR-BioModels benchmark |
 
